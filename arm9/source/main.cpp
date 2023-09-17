@@ -55,14 +55,13 @@ u8 BannerBuffer[SECTOR_SIZE*BANNERSECTORCOUNT];
 // char* CopyBuffer = (char*)0x02FC0000;
 // u8* CopyBuffer = (u8*)0x02040000;
 
+extern bool __dsimode;
 extern int tempSectorTracker;
-extern bool enableReadWriteConsoleMessages;
+extern bool enableWriteConsoleMessages;
 extern void PrintProgramName(void);
 
 bool ErrorState = false;
 
-bool SwapMode = false;
-bool BannerMode = false;
 
 // extern void bannerWrite(int sectorStart, int writeSize);
 
@@ -77,7 +76,7 @@ DISC_INTERFACE io_dsx_ = {
     (FN_MEDIUM_SHUTDOWN)&dsxShutdown
 };
 
- bool FoundWriteDevice(bool unlockedSCFG) {
+bool MountDevice(bool unlockedSCFG) {
 	/*if (unlockedSCFG & fatMountSimple("dsx", __my_io_dsisd())) {
 		PrintProgramName();
 		return true;
@@ -86,14 +85,53 @@ DISC_INTERFACE io_dsx_ = {
 	return false;
 }
 
-
 void DoWait(int waitTime) {
 	for (int i = 0; i < waitTime; i++) { swiWaitForVBlank(); }
 }
 
-void DoNormalDump(bool SCFGUnlocked) {
+bool DumpSectors(int sectorStart, int sectorCount, void* buffer, bool allowHiddenRegion) {
 	PrintProgramName();
-	if (!FoundWriteDevice(SCFGUnlocked)) {
+	DoWait(80);
+	iprintf("About to dump %d sectors.\n\nPress A to begin!\n", USED_NUMSECTORS);
+	printf("Press B to abort!\n");
+	while(1) {
+		swiWaitForVBlank();
+		scanKeys();
+		if(keysDown() & KEY_A) break;
+		if(keysDown() & KEY_B) return false;
+	}
+	PrintProgramName();
+	printf("Reading sectors to ram...\n");
+	if (allowHiddenRegion) {
+		dsx2ReadSectors(sectorStart, sectorCount, buffer);
+	} else {
+		dsxReadSectors(sectorStart, sectorCount, buffer);
+	}
+	DoWait(80);
+	return true;
+}
+
+void CardInit(bool Silent, bool SCFGUnlocked) {
+	if (!Silent) { PrintProgramName(); }
+	DoWait(30);
+	// Do cart init stuff to wake cart up. DLDI init may fail otherwise!
+	sNDSHeaderExt cartHeader;
+	cardInit(&cartHeader);
+	char gameTitle[13] = {0};
+	char gameCode[7] = {0};
+	tonccpy(gameTitle, cartHeader.gameTitle, 12);
+	tonccpy(gameCode, cartHeader.gameCode, 6);
+	DoWait(60);
+	if (!Silent) {
+		if (SCFGUnlocked) { iprintf("SCFG_MC Status:  %2x \n\n", REG_SCFG_MC); }
+		iprintf("Detected Cart Name: %12s \n\n", gameTitle);
+		iprintf("Detected Cart Game Id: %6s \n\n", gameCode);
+	}
+}
+
+void MenuDoNormalDump(bool SCFGUnlocked) {
+	PrintProgramName();
+	if (!MountDevice(SCFGUnlocked)) {
 		printf("FAT Init Failed!\n");
 		ErrorState = true;
 		while(1) {
@@ -103,18 +141,10 @@ void DoNormalDump(bool SCFGUnlocked) {
 		}
 		return;
 	}
-	iprintf("About to dump %d sectors.\n\nPress start to begin!\n", USED_NUMSECTORS);
-	printf("Press select to abort!\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_START) break;
-		if(keysDown() & KEY_SELECT) return;
+	if (!DumpSectors(SECTOR_START, USED_NUMSECTORS, CopyBuffer, true)) { 
+		fatUnmount("dsx");
+		return; 
 	}
-	PrintProgramName();
-	printf("Reading sectors to ram...\n");
-	dsx2ReadSectors(SECTOR_START, USED_NUMSECTORS, CopyBuffer);
-	DoWait(80);
 	PrintProgramName();
 	iprintf("Writing to dsx_rom.bin.\n\nPlease wait...\n");
 	FILE* dest = fopen("dsx:/dsx_rom.bin", "wb");
@@ -127,15 +157,21 @@ void DoNormalDump(bool SCFGUnlocked) {
 	iprintf("Sector dump finished!\n");
 	iprintf("Press A to return to main menu!\n");
 	iprintf("Press B to exit!\n");
+	fatUnmount("dsx");
 	while(1) {
 		swiWaitForVBlank();
 		scanKeys();
 		if(keysDown() & KEY_A) return;
-		if(keysDown() & KEY_B) ErrorState = true;
+		if(keysDown() & KEY_B) { 
+			ErrorState = true;
+			return;
+		}
 	}
 }
 
-void DoCartSwap(bool scfgUnlocked) {
+void MenuDoCartSwap(bool scfgUnlocked) {
+	fatUnmount("dsx");
+	if (!DumpSectors(SECTOR_START, USED_NUMSECTORS, CopyBuffer, true)) { return; }
 	if (scfgUnlocked) {
 		// printf("\n---------[Then press X]---------\n\n");
 		// printf("Press A once SCFG_MC = 0x18.\n");
@@ -144,17 +180,17 @@ void DoCartSwap(bool scfgUnlocked) {
 			PrintProgramName();
 			printf("\n--------[Swap carts now]--------\n\n");
 			printf("Press A once done...\n");
-			iprintf("SCFG_MC Status:  %08x \n\n", REG_SCFG_MC);
+			iprintf("SCFG_MC Status:  %2x \n\n", REG_SCFG_MC);
 			swiWaitForVBlank();
 			scanKeys();
 			if(keysDown() & KEY_A) break;
 		}
-		fifoSendValue32(FIFO_USER_01, 1);
+		fifoSendValue32(FIFO_USER_02, 1);
 		DoWait(60);
 		while (REG_SCFG_MC != 0x18) {
 			PrintProgramName();
-			iprintf("SCFG_MC Status:  %08x \n\n", REG_SCFG_MC);
-			printf("Please wait.\nPress B abort and exit...\n");
+			iprintf("SCFG_MC Status:  %2x \n\n", REG_SCFG_MC);
+			printf("Please wait...\nPress B to abort and exit...\n");
 			if(keysDown() & KEY_B) {
 				ErrorState = true;
 				return;
@@ -173,20 +209,8 @@ void DoCartSwap(bool scfgUnlocked) {
 	}
 	PrintProgramName();
 	printf("Please wait...");
-	fifoSendValue32(FIFO_USER_02, 1);
 	DoWait(60);
-	// Do cart init stuff to wake cart up. DLDI init may fail otherwise!
-	sNDSHeaderExt cartHeader;
-	cardInit(&cartHeader);
-	char gameTitle[13] = {0};
-	char gameCode[7] = {0};
-	tonccpy(gameTitle, cartHeader.gameTitle, 12);
-	tonccpy(gameCode, cartHeader.gameCode, 6);
-	DoWait(60);
-	PrintProgramName();
-	if (scfgUnlocked) { iprintf("SCFG_MC Status:  %8x \n\n", REG_SCFG_MC); }
-	iprintf("Detected Cart Name: %12s \n\n", gameTitle);
-	iprintf("Detected Cart Game Id: %6s \n\n", gameCode);
+	CardInit(false, scfgUnlocked);
 	printf("Press A to continue...");
 	while(1) {
 		swiWaitForVBlank();
@@ -226,7 +250,7 @@ void DoCartSwap(bool scfgUnlocked) {
 	}
 }
 
-void DoBannerWrite(bool SCFGUnlocked) {
+void MenuDoBannerWrite(bool SCFGUnlocked) {
 	PrintProgramName();
 	printf("About to write custom banner.\n");
 	DoWait(120);
@@ -239,7 +263,7 @@ void DoBannerWrite(bool SCFGUnlocked) {
 		if(keysDown() & KEY_A) break;
 		if(keysDown() & KEY_B) return;
 	}
-	if (!FoundWriteDevice(SCFGUnlocked)) {
+	if (!MountDevice(SCFGUnlocked)) {
 		PrintProgramName();
 		printf("FAT Init Failed!\n");
 		ErrorState = true;
@@ -253,18 +277,25 @@ void DoBannerWrite(bool SCFGUnlocked) {
 	// printf("Reading dsx_banner.bin...\n");
 	FILE* sourceBanner = fopen("dsx:/dsx_banner.bin", "wb");
 	if (sourceBanner) {
+		unsigned char *buffer = BannerBuffer;
+		int length = 0;
+		fseek(sourceBanner, 0, SEEK_END);
+		length = ftell(sourceBanner);
 		fseek(sourceBanner, 0, SEEK_SET);
-		fread(BannerBuffer, 1, BANNERBUFFERSIZE, sourceBanner);
-		DoWait(60);
+		// fread(BannerBuffer, 1, BANNERBUFFERSIZE, sourceBanner);
+		fread(buffer, 1, length, sourceBanner);
+		fclose(sourceBanner);
 		PrintProgramName();
-		printf("Do not power off or press X!\n");
-		printf("Writing banner.bin to cart...\n");
+		printf("Do not power off!\n");
+		printf("Writing new banner to cart...\n");
+		DoWait(60);
+		fatUnmount("dsx");
 		// bannerWrite(BANNERSECTORSTART, BANNERSECTORCOUNT);
 		dsx2WriteSectors(BANNERSECTORSTART, BANNERSECTORCOUNT, BannerBuffer);
-		fclose(sourceBanner);
-		fflush(sourceBanner);
+		// fflush(sourceBanner);
 		PrintProgramName();
-		iprintf("Write finished!\n\nPress A to return to main menu!\n");
+		iprintf("File size was %d .\n", length);
+		printf("Write finished!\n\nPress A to return to main menu!\n");
 	} else {
 		PrintProgramName();
 		printf("Banner file not found!\n\nPress A to return to main menu!\n");
@@ -293,12 +324,12 @@ int MainMenu(bool SCFGUnlocked) {
 				printf("A for normal mode.\n");
 				printf("B for cart swap mode.\n");
 				printf("START for banner write mode.\n");
-			if (enableReadWriteConsoleMessages) { 
-				printf("SELECT to enable read/write\ntracking.\n");
-				enableReadWriteConsoleMessages = false;
+			if (enableWriteConsoleMessages) { 
+				printf("SELECT to disable write\ntracking.\n");
+				enableWriteConsoleMessages = false;
 			} else {
-				printf("SELECT to disable read/write\ntracking.\n");
-				enableReadWriteConsoleMessages = true;
+				printf("SELECT to enable write\ntracking.\n");
+				enableWriteConsoleMessages = true;
 			}
 			DoWait(60);
 		}
@@ -318,29 +349,65 @@ int MainMenu(bool SCFGUnlocked) {
 	return Value;
 }
 
-//---------------------------------------------------------------------------------
+
 int main() {
-//---------------------------------------------------------------------------------
+	// Wait till Arm7 is ready
+	// Incase mode switch from TWL modei s required!
+	fifoWaitValue32(FIFO_USER_01);
 	defaultExceptionHandler();
 	bool SCFGUnlocked = false;
+	bool NeedsDSXCart = false;
 	if (REG_SCFG_EXT != 0x00000000) {
+		// Force libNDS to detect as NTR mode.
+		__dsimode = false;
+		REG_SCFG_EXT = 0x83000000;
+		REG_SCFG_CLK = 0x80;
 		// REG_SCFG_EXT = 0x830F0191;
-		// REG_SCFG_CLK = 0x187;
+		// REG_SCFG_CLK = 0x81;
 		SCFGUnlocked = true;
+		DoWait(20);
+		if (REG_SCFG_MC == 0x10) {
+			CardInit(true, SCFGUnlocked);
+		} else if (REG_SCFG_MC == 0x11) {
+			NeedsDSXCart = true;
+		}
 	}
-	// Wait till Arm7 is ready
-	// fifoWaitValue32(FIFO_USER_03);
 	BootSplashInit();
 	sysSetCardOwner (BUS_OWNER_ARM9);
 	sysSetCartOwner (BUS_OWNER_ARM9);
-	enableReadWriteConsoleMessages = false;
+	enableWriteConsoleMessages = false;
+	if (NeedsDSXCart & SCFGUnlocked) {
+		while(REG_SCFG_MC != 0x10) { 
+			swiWaitForVBlank(); 
+			PrintProgramName();
+			printf("----[DSX cart not detected!]----\n");
+			iprintf("----[SCFG_MC Status: %2x]--------\n\n", REG_SCFG_MC);
+			printf("Please insert DSX cart now...\n");
+		}
+		DoWait(30);
+		fifoSendValue32(FIFO_USER_02, 1);
+		/*if (SCFGUnlocked) {
+			while(REG_SCFG_MC != 0x18) swiWaitForVBlank(); 
+		} else {
+			printf("Press A when ready...\n");
+			while(1) {
+				swiWaitForVBlank();
+				scanKeys();
+				if(keysDown() & KEY_A) break;
+			}
+		}*/
+		DoWait(60);
+		CardInit(true, SCFGUnlocked);
+		while (REG_SCFG_MC != 0x18) swiWaitForVBlank();
+		DoWait(30);
+	}
     while(1) {
         swiWaitForVBlank();
 		int Result = MainMenu(SCFGUnlocked);
 		switch (Result) {
-			case 0: { DoNormalDump(SCFGUnlocked); } break;
-			case 1: { DoCartSwap(SCFGUnlocked); } break;
-			case 2: { DoBannerWrite(SCFGUnlocked); } break;
+			case 0: { MenuDoNormalDump(SCFGUnlocked); } break;
+			case 1: { MenuDoCartSwap(SCFGUnlocked); } break;
+			case 2: { MenuDoBannerWrite(SCFGUnlocked); } break;
 		}
 		if (ErrorState) { break; }
     }

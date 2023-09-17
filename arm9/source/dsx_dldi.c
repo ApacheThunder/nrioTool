@@ -73,7 +73,7 @@ static int dsxLastZone = -1;
 static unsigned char dsxBuffer[BYTES_PER_READ];
 
 volatile int tempSectorTracker = 0;
-bool enableReadWriteConsoleMessages = false;
+bool enableWriteConsoleMessages = false;
 
 void PrintProgramName() {
 	iprintf("\e[H\e[2J");
@@ -279,11 +279,6 @@ bool dsxReadSectors (u32 sector, u32 numSectors, void* buffer) {
 
 	for(j=0; j<numSectors; j++)
 	{
-		/*if (enableReadWriteConsoleMessages) {
-			swiWaitForVBlank();
-			PrintProgramName();
-			iprintf("Reading sector %d ...\n", j);
-		}*/
 		//put us in the right zone
 		//NOTE: reads which cross zones are invalid.
 		dsxZoneSwitch(lba);
@@ -322,7 +317,7 @@ bool dsxWriteSectors (u32 sector, u32 numSectors, void* buffer) {
 
 	for(j=0; j<numSectors; j++)
 	{
-		if (enableReadWriteConsoleMessages) {
+		if (enableWriteConsoleMessages) {
 			swiWaitForVBlank();
 			PrintProgramName();
 			iprintf("Writing sector %d ...\n", j);
@@ -398,11 +393,6 @@ void dsx2ReadSectors (u32 sector, u32 numSectors, void* buffer) {
 	dsxPoll();
 	for(j=0; j<numSectors; j++)
 	{
-		if (enableReadWriteConsoleMessages) {
-			swiWaitForVBlank();
-			PrintProgramName();
-			iprintf("Reading sector %d ...\n", j);
-		}
 		dsxZoneSwitch(lba);
 		command[0] = 0xBF000000 | (lba>>8);
 		command[1] = (lba<<24);
@@ -424,7 +414,7 @@ void dsx2WriteSectors (u32 sector, u32 numSectors, void* buffer) {
 	dsxPoll();
 	for(j=0; j<numSectors; j++)
 	{
-		if (enableReadWriteConsoleMessages) {
+		if (enableWriteConsoleMessages) {
 			swiWaitForVBlank();
 			PrintProgramName();
 			iprintf("Writing sector %d ...\n", j);

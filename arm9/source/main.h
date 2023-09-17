@@ -3,8 +3,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+extern bool __dsimode;
 extern int tempSectorTracker;
-extern bool enableReadWriteConsoleMessages;
+extern bool enableWriteConsoleMessages;
 extern void PrintProgramName(void);
 // extern void bannerData(void);
 // extern void bannerWrite(void);
