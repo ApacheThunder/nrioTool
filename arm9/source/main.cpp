@@ -1,12 +1,11 @@
 #include <nds.h>
-// #include <nds/arm9/dldi.h>
 #include <fat.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "bootsplash.h"
 #include "dsx_dldi.h"
-// #include "my_sd.h"
+#include "my_sd.h"
 #include "tonccpy.h"
 #include "read_card.h"
 
@@ -55,13 +54,12 @@ u8 BannerBuffer[SECTOR_SIZE*BANNERSECTORCOUNT];
 // char* CopyBuffer = (char*)0x02FC0000;
 // u8* CopyBuffer = (u8*)0x02040000;
 
-extern bool __dsimode;
+// extern bool __dsimode;
 extern int tempSectorTracker;
 extern bool enableWriteConsoleMessages;
 extern void PrintProgramName(void);
 
 bool ErrorState = false;
-
 
 // extern void bannerWrite(int sectorStart, int writeSize);
 
@@ -76,17 +74,24 @@ DISC_INTERFACE io_dsx_ = {
     (FN_MEDIUM_SHUTDOWN)&dsxShutdown
 };
 
-bool MountDevice(bool unlockedSCFG) {
-	/*if (unlockedSCFG & fatMountSimple("dsx", __my_io_dsisd())) {
-		PrintProgramName();
-		return true;
-	} else*/
-	if (fatMountSimple("dsx", &io_dsx_)) { return true; }
-	return false;
-}
-
 void DoWait(int waitTime) {
 	for (int i = 0; i < waitTime; i++) { swiWaitForVBlank(); }
+}
+
+bool FindFATDevice(bool unlockedSCFG) {
+	if (unlockedSCFG) {
+		// Important to set this else SD init will hang/fail!
+		fifoSetValue32Handler(FIFO_USER_04, sdStatusHandler, nullptr);
+		DoWait(10);
+		if (fatMountSimple("dsx", __my_io_dsisd())) {
+			PrintProgramName();
+			return true;
+		}
+	}
+	if (fatMountSimple("dsx", &io_dsx_)) {
+		return true; 
+	}
+	return false;
 }
 
 bool DumpSectors(int sectorStart, int sectorCount, void* buffer, bool allowHiddenRegion) {
@@ -131,7 +136,7 @@ void CardInit(bool Silent, bool SCFGUnlocked) {
 
 void MenuDoNormalDump(bool SCFGUnlocked) {
 	PrintProgramName();
-	if (!MountDevice(SCFGUnlocked)) {
+	if (!FindFATDevice(SCFGUnlocked)) {
 		printf("FAT Init Failed!\n");
 		ErrorState = true;
 		while(1) {
@@ -263,7 +268,7 @@ void MenuDoBannerWrite(bool SCFGUnlocked) {
 		if(keysDown() & KEY_A) break;
 		if(keysDown() & KEY_B) return;
 	}
-	if (!MountDevice(SCFGUnlocked)) {
+	if (!FindFATDevice(SCFGUnlocked)) {
 		PrintProgramName();
 		printf("FAT Init Failed!\n");
 		ErrorState = true;
@@ -277,13 +282,7 @@ void MenuDoBannerWrite(bool SCFGUnlocked) {
 	// printf("Reading dsx_banner.bin...\n");
 	FILE* sourceBanner = fopen("dsx:/dsx_banner.bin", "wb");
 	if (sourceBanner) {
-		unsigned char *buffer = BannerBuffer;
-		int length = 0;
-		fseek(sourceBanner, 0, SEEK_END);
-		length = ftell(sourceBanner);
-		fseek(sourceBanner, 0, SEEK_SET);
-		// fread(BannerBuffer, 1, BANNERBUFFERSIZE, sourceBanner);
-		fread(buffer, 1, length, sourceBanner);
+		fread(BannerBuffer, 1, BANNERBUFFERSIZE, sourceBanner);
 		fclose(sourceBanner);
 		PrintProgramName();
 		printf("Do not power off!\n");
@@ -294,7 +293,7 @@ void MenuDoBannerWrite(bool SCFGUnlocked) {
 		dsx2WriteSectors(BANNERSECTORSTART, BANNERSECTORCOUNT, BannerBuffer);
 		// fflush(sourceBanner);
 		PrintProgramName();
-		iprintf("File size was %d .\n", length);
+		// iprintf("File size was %d .\n", length);
 		printf("Write finished!\n\nPress A to return to main menu!\n");
 	} else {
 		PrintProgramName();
@@ -314,7 +313,7 @@ int MainMenu(bool SCFGUnlocked) {
 	printf("A for normal mode.\n");
 	printf("B for cart swap mode.\n");
 	printf("START for banner write mode.\n");
-	printf("SELECT to enable read/write\ntracking.\n");
+	printf("SELECT to disable write\ntracking.\n");
 	while(1) {
 		swiWaitForVBlank();
 		scanKeys();
@@ -352,16 +351,17 @@ int MainMenu(bool SCFGUnlocked) {
 
 int main() {
 	// Wait till Arm7 is ready
-	// Incase mode switch from TWL modei s required!
+	// Some SCFG values may need updating by arm7. Wait till that's done.
 	fifoWaitValue32(FIFO_USER_01);
 	defaultExceptionHandler();
 	bool SCFGUnlocked = false;
 	bool NeedsDSXCart = false;
 	if (REG_SCFG_EXT != 0x00000000) {
 		// Force libNDS to detect as NTR mode.
-		__dsimode = false;
-		REG_SCFG_EXT = 0x83000000;
-		REG_SCFG_CLK = 0x80;
+		// __dsimode = false;
+		// REG_SCFG_EXT = 0x83000000;
+		// REG_SCFG_CLK = 0x81;
+		// REG_SCFG_EXT = 0x83073100;
 		// REG_SCFG_EXT = 0x830F0191;
 		// REG_SCFG_CLK = 0x81;
 		SCFGUnlocked = true;
@@ -375,7 +375,7 @@ int main() {
 	BootSplashInit();
 	sysSetCardOwner (BUS_OWNER_ARM9);
 	sysSetCartOwner (BUS_OWNER_ARM9);
-	enableWriteConsoleMessages = false;
+	enableWriteConsoleMessages = true;
 	if (NeedsDSXCart & SCFGUnlocked) {
 		while(REG_SCFG_MC != 0x10) { 
 			swiWaitForVBlank(); 

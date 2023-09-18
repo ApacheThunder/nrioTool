@@ -26,6 +26,7 @@
 */
 
 #include <nds/ndstypes.h>
+#include <nds/arm9/dldi.h>
 #include <nds/system.h>
 #include <nds.h>
 #include <stdio.h>
@@ -73,7 +74,7 @@ static int dsxLastZone = -1;
 static unsigned char dsxBuffer[BYTES_PER_READ];
 
 volatile int tempSectorTracker = 0;
-bool enableWriteConsoleMessages = false;
+bool enableWriteConsoleMessages = true;
 
 void PrintProgramName() {
 	iprintf("\e[H\e[2J");
@@ -463,3 +464,4 @@ bool dsxShutdown(void) {
 	//bye bye.
 	return true;
 }
+

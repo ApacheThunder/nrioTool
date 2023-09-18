@@ -3,7 +3,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-extern bool __dsimode;
+// extern bool __dsimode;
 extern int tempSectorTracker;
 extern bool enableWriteConsoleMessages;
 extern void PrintProgramName(void);
