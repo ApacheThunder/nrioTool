@@ -149,7 +149,7 @@ int my_sdmmc_sdcard_writesectors(u32 sector_no, u32 numsectors, void *in);
 int my_sdmmc_nand_readsectors(u32 sector_no, u32 numsectors, void *out);
 int my_sdmmc_nand_writesectors(u32 sector_no, u32 numsectors, void *in);
 
-extern u32 sdmmc_cid[];
+// extern u32 sdmmc_cid[];
 extern int sdmmc_curdevice;
 
 //---------------------------------------------------------------------------------

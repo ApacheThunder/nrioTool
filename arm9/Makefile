@@ -122,12 +122,6 @@ $(ARM9ELF)	:	$(OFILES)
 topLogo.s			:	../$(IMAGES)/topLogo.bmp
 	grit	$< -gB8 -gzl -fts -gTff00ff -o $@ -q
 
-botLogo.s			:	../$(IMAGES)/botLogo.bmp
-	grit	$< -gB8 -gzl -fts -gTff00ff -o $@ -q
-	
-font.s			:	../$(IMAGES)/font.bmp
-	grit	$< -gt -pw16 -mR! -m! -gB4 $@ -q
-
 #---------------------------------------------------------------------------------
 # you need a rule like this for each extension you use as binary data 
 #---------------------------------------------------------------------------------

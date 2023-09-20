@@ -79,6 +79,8 @@ static u32 getRandomNumber(void) {
 	return rand();
 }
 
+extern bool sdMounted;
+
 //---------------------------------------------------------------------------------
 // https://github.com/devkitPro/libnds/blob/105d4943dbac8f2bd99a47b22cd3ed48f96af083/source/common/card.c#L47-L62
 // but modified to write if CARD_WR is set.
@@ -317,7 +319,7 @@ static void switchToTwlBlowfish(sNDSHeaderExt* ndsHeader) {
 }
 
 
-int cardInit (sNDSHeaderExt* ndsHeader)
+int cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset)
 {
 	u32 portFlagsKey1, portFlagsSecRead;
 	normalChip = false; // As defined by GBAtek, normal chip secure area and header are accessed in blocks of 0x200, other chip in blocks of 0x1000
@@ -331,7 +333,7 @@ int cardInit (sNDSHeaderExt* ndsHeader)
 	twlBlowfish = false;
 
 	sysSetCardOwner (BUS_OWNER_ARM9);	// Allow arm9 to access NDS cart
-	if (isDSiMode()) {
+	if ((sdMounted | isDSiMode()) && !SkipSlotReset) {
 		// Reset card slot
 		disableSlot1();
 		for(i = 0; i < 25; i++) { swiWaitForVBlank(); }

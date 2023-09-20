@@ -38,6 +38,7 @@
 *.app
 *.arm7
 *.arm9
+*.elf
 arm9/data/
 arm7/build
 arm9/build/

@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-void PrintProgramName(void);
+extern void PrintProgramName(void);
 void dsxWaitMs(unsigned int requestTime);
 void dsxSendCommand(unsigned int command[2], unsigned int pageSize, unsigned int latency, unsigned char *buf);
 void dsxPoll(void);
@@ -35,7 +35,6 @@ bool dsxReadSectors (u32 sector, u32 numSectors, void* buffer);
 bool dsxWriteSectors (u32 sector, u32 numSectors, void* buffer);
 bool dsx2ReadSectors (u32 sector, u32 numSectors, void* buffer);
 bool dsx2WriteSectors (u32 sector, u32 numSectors, void* buffer);
-void bannerWrite(int sectorStart, int writeSize);
 bool dsxShutdown(void);
 
 #ifdef __cplusplus

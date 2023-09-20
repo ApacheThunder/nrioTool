@@ -38,8 +38,9 @@ extern "C" {
 
 extern u32 cardNandRomEnd;
 extern u32 cardNandRwStart;
+extern bool sdMounted;
 
-int cardInit (sNDSHeaderExt* ndsHeader);
+int cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset);
 
 void cardRead (u32 src, void* dest, bool nandSave);
 

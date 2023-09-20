@@ -132,3 +132,4 @@ const DISC_INTERFACE __my_io_dsisd_r = {
 const DISC_INTERFACE *__my_io_dsisd() {
 	return sdWriteLocked ? &__my_io_dsisd_r : &__my_io_dsisd_rw;
 }
+

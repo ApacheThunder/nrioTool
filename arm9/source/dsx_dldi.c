@@ -74,15 +74,8 @@ static int dsxLastZone = -1;
 static unsigned char dsxBuffer[BYTES_PER_READ];
 
 volatile int tempSectorTracker = 0;
-bool enableWriteConsoleMessages = true;
 
-void PrintProgramName() {
-	iprintf("\e[H\e[2J");
-	printf("--------------------------------\n");
-	printf("------[DS-Xtreme Dump Test]-----\n");
-	printf("--------------------------------\n\n");
-}
-
+extern void PrintProgramName(void);
 /*-----------------------------------------------------------------
 wait_msecs
 Wait for a certain amount of milliseconds, uses vertical scanlines to synchronize.
@@ -318,12 +311,14 @@ bool dsxWriteSectors (u32 sector, u32 numSectors, void* buffer) {
 
 	for(j=0; j<numSectors; j++)
 	{
-		if (enableWriteConsoleMessages) {
+		swiWaitForVBlank();
+		PrintProgramName();
+		/*if (tempSectorTracker>0){
 			swiWaitForVBlank();
-			PrintProgramName();
-			iprintf("Writing sector %d ...\n", j);
-			tempSectorTracker++;
-		}
+			PrintProgramName();		
+			iprintf("Sectors remaining: %d ...\n", tempSectorTracker);
+			tempSectorTracker--;
+		}*/
 		// Check if we are switching zones
 		//Don't issue a write across a zone.
 		//it's not possible to begin with
@@ -392,8 +387,7 @@ void dsx2ReadSectors (u32 sector, u32 numSectors, void* buffer) {
 	unsigned int lba = sector;
 	REG_AUXSPICNT = CARD_ENABLE | CLOCK_4MHz | SPI_ROM;
 	dsxPoll();
-	for(j=0; j<numSectors; j++)
-	{
+	for(j=0; j<numSectors; j++) {
 		dsxZoneSwitch(lba);
 		command[0] = 0xBF000000 | (lba>>8);
 		command[1] = (lba<<24);
@@ -413,13 +407,13 @@ void dsx2WriteSectors (u32 sector, u32 numSectors, void* buffer) {
 	unsigned int lba = sector;
 	REG_AUXSPICNT = CARD_ENABLE | CLOCK_4MHz | SPI_ROM;
 	dsxPoll();
-	for(j=0; j<numSectors; j++)
-	{
-		if (enableWriteConsoleMessages) {
+	for(j=0; j<numSectors; j++) {
+		if (tempSectorTracker>0){
 			swiWaitForVBlank();
-			PrintProgramName();
-			iprintf("Writing sector %d ...\n", j);
-			tempSectorTracker++;
+			PrintProgramName();		
+			iprintf("Sectors remaining: %d ...\n", tempSectorTracker);
+			printf("Do not power off!\n");
+			tempSectorTracker--;
 		}
 		dsxZoneSwitch(lba);
 		//Reset fpga ram address
@@ -427,8 +421,7 @@ void dsx2WriteSectors (u32 sector, u32 numSectors, void* buffer) {
 		command[1] = 0;
 		dsxSendCommand(command, 0, 0, (unsigned char*)&writeResult);
 		dsxSendCommand(command, 0, 0, (unsigned char*)&writeResult);
-		for(i=0; i<BYTES_PER_READ/4; i++)
-		{
+		for(i=0; i<BYTES_PER_READ/4; i++) {
 			command[0] = 0x04000000 | buf[1] | (buf[2] << 8) | (buf[3] << 16);
 			command[1] = buf[0] << 24;
 			buf += sizeof (unsigned int);
@@ -450,12 +443,6 @@ void dsx2WriteSectors (u32 sector, u32 numSectors, void* buffer) {
 	dsxWaitMs(50);
 	// return true;
 }
-// Embedded BIN files via .s seems to only work from .c files and not .cpp. 
-// Extern call bannerWrite from here to get around this.
-/*void bannerData();
-void bannerWrite(int sectorStart, int writeSize) {
-	dsx2WriteSectors(sectorStart, writeSize, bannerData);
-}*/
 /*-----------------------------------------------------------------
 shutdown
 shutdown the card, performing any needed cleanup operations
