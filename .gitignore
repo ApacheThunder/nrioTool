@@ -31,17 +31,16 @@
 *.out
 *.app
 
-# devKitArm/LibNDS/3DS compiled stuff
+# devkitARM/libnds/3DS compiled stuff
 *.bin
 *.tmd
 *.cia
+*.nds
 *.app
 *.arm7
 *.arm9
 *.elf
-arm9/data/
-arm7/build
-arm9/build/
+build
 data
 
 # Stuff used to build custom banner/misc other things that shouldn't be in repo.
