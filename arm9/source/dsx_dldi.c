@@ -311,8 +311,6 @@ bool dsxWriteSectors (u32 sector, u32 numSectors, void* buffer) {
 
 	for(j=0; j<numSectors; j++)
 	{
-		swiWaitForVBlank();
-		PrintProgramName();
 		/*if (tempSectorTracker>0){
 			swiWaitForVBlank();
 			PrintProgramName();		
