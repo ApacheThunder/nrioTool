@@ -334,19 +334,16 @@ void MenuDoArmBinaryWrites(bool SCFGUnlocked) {
 		}
 	}
 	PrintProgramName();
-	printf("Reading dsx_arm9.bin...\n");
-	FILE *arm7File;
-	FILE *arm9File;
+	printf("Reading dsx_firmware.nds...\n");
+	FILE *ndsFile;
 	if (sdMounted) {
-		arm9File = fopen("sd:/dsx_arm9.bin", "rb");
-		arm7File = fopen("sd:/dsx_arm7.bin", "rb");
+		ndsFile = fopen("sd:/dsx_firmware.nds", "rb");
 	} else { 
-		arm9File = fopen("dsx:/dsx_arm9.bin", "rb"); 
-		arm7File = fopen("dsx:/dsx_arm7.bin", "rb");
+		ndsFile = fopen("dsx:/dsx_firmware.nds", "rb"); 
 	}
-	if (!arm9File | !arm7File) {
+	if (!ndsFile) {
 		PrintProgramName();
-		printf("Error! One or both arm binaries are missing!\n");
+		printf("Error! dsx_firmware.nds is missing!\n");
 		printf("Press A to return to Main Menu!\n");
 		while(1) {
 			swiWaitForVBlank();
@@ -354,23 +351,74 @@ void MenuDoArmBinaryWrites(bool SCFGUnlocked) {
 			if(keysDown() & KEY_A)return;			
 		}
 	}
-	printf("Reading dsx_arm9.bin...\n");
-	fread(CopyBuffer, 1, ARM9BUFFERSIZE, arm9File);
+	printf("Reading dsx_firmware.nds header...\n");
+	ALIGN(4) tNDSHeader* srcNdsHeader = (tNDSHeader*)malloc(sizeof(tNDSHeader));
+	fread(srcNdsHeader, sizeof(tNDSHeader), 1, ndsFile);
+	// sanity check the binary sizes. We do have limits, after all
+	if(srcNdsHeader->arm9binarySize > ARM9BUFFERSIZE || srcNdsHeader->arm7binarySize > ARM7BUFFERSIZE)
+	{
+		PrintProgramName();
+		printf("Error! The ARM9 or ARM7 binary is\ntoo large!\n");
+		if(srcNdsHeader->arm9binarySize > ARM9BUFFERSIZE)
+			printf("ARM9 size must be under\n%d bytes!", ARM9BUFFERSIZE);
+		if(srcNdsHeader->arm7binarySize > ARM7BUFFERSIZE)
+			printf("ARM7 size must be under\n%d bytes!", ARM7BUFFERSIZE);
+		printf("Press A to return to Main Menu!\n");
+		fclose(ndsFile);
+		free(srcNdsHeader);
+		while(1) {
+			swiWaitForVBlank();
+			scanKeys();
+			if(keysDown() & KEY_A)return;			
+		}
+	}
+	/*
+		sanity check the load/execute addresses.
+		These must match the original DS-Xtreme header, which, as of 1.1.3, are the following:
+		ARM9 = 0x02000000, ARM7 = 0x03800000
+	*/
+	if(
+		(u32)srcNdsHeader->arm9executeAddress != 0x02000000 ||
+		(u32)srcNdsHeader->arm9destination != 0x02000000 ||
+		(u32)srcNdsHeader->arm7executeAddress != 0x03800000 ||
+		(u32)srcNdsHeader->arm7destination != 0x03800000
+	)
+	{
+		PrintProgramName();
+		printf("Error! The ARM9 or ARM7 binary cannot\nboot on this flashcart!\n");
+		if((u32)srcNdsHeader->arm9executeAddress != 0x02000000 || (u32)srcNdsHeader->arm9destination != 0x02000000)
+			printf("ARM9 must be located at\naddress 0x02000000!");
+		if((u32)srcNdsHeader->arm7executeAddress != 0x03800000 || (u32)srcNdsHeader->arm7destination != 0x03800000)
+			printf("ARM7 must be located at\naddress 0x03800000!");
+		printf("Press A to return to Main Menu!\n");
+		fclose(ndsFile);
+		free(srcNdsHeader);
+		while(1) {
+			swiWaitForVBlank();
+			scanKeys();
+			if(keysDown() & KEY_A)return;			
+		}
+	}
+	
+	printf("Reading ARM9...\n");
+	fseek(ndsFile, srcNdsHeader->arm9romOffset, SEEK_SET);
+	fread(CopyBuffer, 1, srcNdsHeader->arm9binarySize, ndsFile);
 	PrintProgramName();
 	printf("Writing new arm9 binary to cart...\n");
 	printf("Do not power off!\n");
-	fclose(arm9File);
 	DoWait(60);
 	tempSectorTracker = ARM9SECTORCOUNT;
 	dsx2WriteSectors(ARM9SECTORSTART, ARM9SECTORCOUNT, CopyBuffer);
 	DoWait(60);
 	PrintProgramName();
-	printf("Reading dsx_arm7.bin...\n");
-	fread(CopyBuffer, 1, ARM7BUFFERSIZE, arm7File);
+	printf("Reading ARM7...\n");
+	fseek(ndsFile, srcNdsHeader->arm7romOffset, SEEK_SET);
+	fread(CopyBuffer, 1, srcNdsHeader->arm7binarySize, ndsFile);
 	PrintProgramName();
 	printf("Writing new arm7 binary to cart...\n");
 	printf("Do not power off!\n");
-	fclose(arm7File);
+	fclose(ndsFile);
+	free(srcNdsHeader);
 	DoWait(60);
 	PrintProgramName();
 	tempSectorTracker = ARM7SECTORCOUNT;
