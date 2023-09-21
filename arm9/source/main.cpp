@@ -15,14 +15,14 @@
 #define CONSOLE_SCREEN_WIDTH 32
 #define CONSOLE_SCREEN_HEIGHT 24
 
-// Full Hidden Region
 #define SECTOR_SIZE 512
 // #define SECTOR_START 0
 int SECTOR_START = 0;
+// Full Hidden Region
 #define NUM_SECTORS 6000
-
 // Trimmed Region
 // Data after this is different everytime the card boots up so this region is the only one that matters
+// The USB updator also does not overwrite any data past this point further confirming this.
 #define USED_NUMSECTORS 5376
 
 // Arm9 Binary Region
