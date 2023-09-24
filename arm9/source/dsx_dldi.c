@@ -64,12 +64,15 @@
 
 #define CARD_ENABLE			(1<<15)
 
+#define StatRefreshRate 41
+
 // Define last zone that was read or written
 static int dsxLastZone = -1;
 
 static unsigned char dsxBuffer[BYTES_PER_READ];
 
 volatile int tempSectorTracker = 0;
+volatile int tempSectorTimer = 0;
 extern void PrintProgramName(void);
 /*-----------------------------------------------------------------
 wait_msecs
@@ -328,10 +331,14 @@ void dsx2WriteSectors (u32 sector, u32 numSectors, void* buffer) {
 	dsxPoll();
 	for(j=0; j<numSectors; j++) {
 		if (tempSectorTracker>0){
-			swiWaitForVBlank();
-			PrintProgramName();		
-			iprintf("Sectors remaining: %d ...\n", tempSectorTracker);
-			printf("Do not power off!\n");
+			if (tempSectorTimer == 0) {
+				swiWaitForVBlank();
+				PrintProgramName();		
+				iprintf("Sectors remaining: %d ...\n", tempSectorTracker);
+				printf("Do not power off!\n");
+				tempSectorTimer = StatRefreshRate;
+			}
+			tempSectorTimer--;
 			tempSectorTracker--;
 		}
 		// Check if we are switching zones

@@ -16,9 +16,9 @@
 #define CONSOLE_SCREEN_HEIGHT 24
 
 #define SECTOR_SIZE 512
-#define SECTOR_START 0
+// #define SECTOR_START 0
 // Full Hidden Region
-// int NUM_SECTORS = 24577; // Most stuff after 5264 sector count is built in skin/theme files and other stuff
+#define NUM_SECTORS 24577 // Most stuff after 5264 sector count is built in skin/theme files and other stuff
 #define USED_NUMSECTORS 5264 // Reduced dump size to the original region not including extra sectors for TWL banner as that's unofficial.
 
 // Arm9 Binary Region
@@ -40,6 +40,8 @@
 // #define HEADERSECTORSTART 0
 // #define HEADERSIZE 8
 // #define HEADERBufSize 0x1000
+
+#define StatRefreshRate 41
 
 u8 CopyBuffer[SECTOR_SIZE*USED_NUMSECTORS];
 u8 BannerBuffer[BANNERBUFFERSIZE];
@@ -172,14 +174,19 @@ void MenuDoNormalDump(bool SCFGUnlocked) {
 	FILE *dest;
 	if (sdMounted) { dest = fopen("sd:/dsx_rom.bin", "wb"); } else { dest = fopen("dsx:/dsx_rom.bin", "wb"); }
 	int SectorsRemaining = USED_NUMSECTORS;
+	int RefreshTimer = 0;
 	for (int i = 0; i < USED_NUMSECTORS; i++){ 
-		PrintProgramName();
-		printf("Dumping sectors to dsx_rom.bin.\nPlease Wait...\n\n\n");
-		iprintf("Sectors Remaining: %d \n", SectorsRemaining);
+		if (RefreshTimer == 0) {
+			RefreshTimer = StatRefreshRate;
+			swiWaitForVBlank();
+			PrintProgramName();
+			printf("Dumping sectors to dsx_rom.bin.\nPlease Wait...\n\n\n");
+			iprintf("Sectors Remaining: %d \n", SectorsRemaining);
+		}
 		dsx2ReadSectors(i, 1, ReadBuffer);
 		fwrite(ReadBuffer, 0x200, 1, dest); // Used Region
 		SectorsRemaining--;
-		swiWaitForVBlank();
+		RefreshTimer--;
 	}
 	fclose(dest);
 	PrintProgramName();
@@ -418,8 +425,8 @@ int MainMenu(bool SCFGUnlocked) {
 	printf("A to dump hidden region to file.\n");
 	if (!SCFGUnlocked)printf("(X to switch Slot1 DLDI target)\n\n");
 	printf("START to write new banner\n");
-	printf("SELECT to write new Arm binaries\n");
-	printf("B to aboart and exit\n");
+	printf("SELECT to write new Arm binaries\n\n");
+	printf("B to abort and exit\n");
 	while(1) {
 		swiWaitForVBlank();
 		scanKeys();
