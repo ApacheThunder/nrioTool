@@ -32,7 +32,7 @@ dist:	all
 $(TARGET).nds:	$(TARGET).arm7 $(TARGET).arm9
 	ndstool	-c $(TARGET).nds -7 $(TARGET).arm7.elf -9 $(TARGET).arm9.elf \
 			-b $(CURDIR)/icon.bmp "NAND Cart Tool; For N-Card/Clones; By Apache Thunder" \
-			-g DSXT 01 "NRIOTOOL" -z 80040000 -u 00030004 -a 00000138 -p 0001
+			-g DSNR 01 "NRIOTOOL" -z 80040000 -u 00030004 -a 00000138 -p 0001
 
 $(TARGET).arm7	: arm7/$(TARGET).elf
 	cp arm7/$(TARGET).elf $(TARGET).arm7.elf
