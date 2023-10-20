@@ -7,65 +7,59 @@
 #include <nds/fifomessages.h>
 
 #include "bootsplash.h"
-#include "dsx_dldi.h"
+#include "nrio_dldi.h"
 #include "my_sd.h"
 #include "tonccpy.h"
 #include "read_card.h"
 
+#define NDS_HEADER 0x02FFFE00
+#define DSI_HEADER 0x02FFE000
+
+#define STAGE2_HEADER 0x02000000
+#define UDISK_HEADER 0x02000200
+
 #define CONSOLE_SCREEN_WIDTH 32
 #define CONSOLE_SCREEN_HEIGHT 24
-
-#define SECTOR_SIZE 512
-// #define SECTOR_START 0
-// Full Hidden Region
-#define NUM_SECTORS 24576 // Most stuff after 5264 sector count is built in skin/theme files and other stuff
-#define USED_NUMSECTORS 5264 // Reduced dump size to the original region not including extra sectors for TWL banner as that's unofficial.
-
-// Arm9 Binary Region
-#define ARM9SECTORSTART 8
-#define ARM9SECTORCOUNT 4710
-#define ARM9BUFFERSIZE 0x24CC00
-// Arm7 Binary Region
-#define ARM7SECTORSTART 5128
-#define ARM7SECTORCOUNT 128
-#define ARM7BUFFERSIZE 0x10000
-
-// Banner Region 
-// (All data after this in the rom region is unused dummy data so a larger TWL banner can be used!
-// (although only DSi System Menu will bother to read it as one)
-#define BANNERSECTORSTART 5256
-#define BANNERSECTORCOUNT 18
-#define BANNERBUFFERSIZE 0x2400
-
-// Incase I ever find it...it appears to either be encrypted or not present on nand
-#define HEADERSECTORSTART 11245
-#define HEADERSECTORCOUNT 1
-// #define HEADERBufSize 0x200 (currently same as standard read buffer size)
-
 #define StatRefreshRate 41
 
-u8 CopyBuffer[SECTOR_SIZE*USED_NUMSECTORS];
-u8 BannerBuffer[BANNERBUFFERSIZE];
-u8 ReadBuffer[SECTOR_SIZE];
+#define NUM_SECTORS 50000
+#define SECTOR_SIZE 512
 
-extern int tempSectorTracker;
+#define UDISKROMOFFSET (u32)0x60000
+#define FALLBACKSIZE 20000
+
+
+tNDSHeader* ndsHeader = (tNDSHeader*)NDS_HEADER;
+tDSiHeader* cartHeader = (tDSiHeader*)DSI_HEADER;
+
+tNDSHeader* stage2Header = (tNDSHeader*)STAGE2_HEADER;
+tNDSHeader* uDiskHeader = (tNDSHeader*)UDISK_HEADER;
+
+// ALIGN(4) u8 CopyBuffer[SECTOR_SIZE*NUM_SECTORS];
+ALIGN(4) u8 ReadBuffer[SECTOR_SIZE];
+ALIGN(4) u32 CartReadBuffer[512];
 
 bool ErrorState = false;
-
-bool dsxMounted = false;
+bool nrioMounted = false;
 bool sdMounted = false;
 
 char gameTitle[13] = {0};
 
-DISC_INTERFACE io_dsx_ = {
-    0x44535820, // "DSX "
-    FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE | FEATURE_SLOT_NDS,
-    (FN_MEDIUM_STARTUP)&dsxStartup,
-    (FN_MEDIUM_ISINSERTED)&dsxIsInserted,
-    (FN_MEDIUM_READSECTORS)&dsxReadSectors,
-    (FN_MEDIUM_WRITESECTORS)&dsxWriteSectors,
-    (FN_MEDIUM_CLEARSTATUS)&dsxClearStatus,
-    (FN_MEDIUM_SHUTDOWN)&dsxShutdown
+static tNDSHeader* loadHeader(tDSiHeader* twlHeaderTemp) {
+	tNDSHeader* ntrHeader = (tNDSHeader*)NDS_HEADER;
+	*ntrHeader = twlHeaderTemp->ndshdr;
+	return ntrHeader;
+}
+
+DISC_INTERFACE io_nrio_ = {
+    0x4E52494F, // "NRIO"
+    FEATURE_MEDIUM_CANREAD | /*FEATURE_MEDIUM_CANWRITE |*/ FEATURE_SLOT_NDS,
+    (FN_MEDIUM_STARTUP)&_nrio_startUp,
+    (FN_MEDIUM_ISINSERTED)&_nrio_isInserted,
+    (FN_MEDIUM_READSECTORS)&_nrio_readSectors,
+    (FN_MEDIUM_WRITESECTORS)&_nrio_writeSectors,
+    (FN_MEDIUM_CLEARSTATUS)&_nrio_clearStatus,
+    (FN_MEDIUM_SHUTDOWN)&_nrio_shutdown
 };
 
 void DoWait(int waitTime = 30) {
@@ -75,9 +69,9 @@ void DoWait(int waitTime = 30) {
 void PrintProgramName() {
 	consoleClear();
 	printf("\n");
-	printf("<------------------------------>\n");
-	printf("      DSX Special NAND Tool     \n");
-	printf("<------------------------------>\n\n");
+	printf("X------------------------------X\n");
+	printf("|     NRIO Special NAND Tool   |\n");
+	printf("X------------------------------X\n\n");
 }
 
 void DoFATerror(bool isFatel) {
@@ -91,16 +85,54 @@ void DoFATerror(bool isFatel) {
 	}
 }
 
+void InitCartData(tNDSHeader* ndsHeader, u32 CHIPID) {
+	// Set memory values expected by loaded NDS
+    // from NitroHax, thanks to Chism
+	*((u32*)0x02FFF800) = CHIPID;					// CurrentCardID
+	*((u32*)0x02FFF804) = CHIPID;					// Command10CardID
+	*((u16*)0x02FFF808) = ndsHeader->headerCRC16;	// Header Checksum, CRC-16 of [000h-15Dh]
+	*((u16*)0x02FFF80A) = ndsHeader->secureCRC16;	// Secure Area Checksum, CRC-16 of [ [20h]..7FFFh]
+	*((u16*)0x02FFF850) = 0x5835;
+	// Copies of above
+	*((u32*)0x02FFFC00) = CHIPID;					// CurrentCardID
+	*((u32*)0x02FFFC04) = CHIPID;					// Command10CardID
+	*((u16*)0x02FFFC08) = ndsHeader->headerCRC16;	// Header Checksum, CRC-16 of [000h-15Dh]
+	*((u16*)0x02FFFC0A) = ndsHeader->secureCRC16;	// Secure Area Checksum, CRC-16 of [ [20h]..7FFFh]
+	*((u16*)0x02FFFC10) = 0x5835;
+	*((u16*)0x02FFFC40) = 0x01;						// Boot Indicator
+	
+	uint8_t Init[8] = { 0, 0, 0, 0, 0, 0, 0, 0x66 };
+	uint8_t Init2[8] = { 0, 0, 0, 0, 0, 0x21, 0x0D, 0xC1 };
+	uint8_t Init3[8] = { 0, 0, 0, 0, 0, 0xB0, 0x0F, 0xC1 };
+	uint8_t Init4[8] = { 0, 0, 0, 0, 0, 0x83, 0x10, 0xC1 };
+	// uint8_t InitHeader[8] = { 0, 0, 0, 0, 0, 0, 0, 0xB7 };
+	
+	cardPolledTransfer((u32)0xA7586000, (u32*)0x02000000, 0, Init);
+	DoWait(5);
+	cardPolledTransfer((u32)0xA7020000, (u32*)0x02000000, 128, Init2);
+	DoWait(5);
+	cardPolledTransfer((u32)0xA7020000, (u32*)0x02000000, 128, Init3);
+	DoWait(5);
+	cardPolledTransfer((u32)0xA7020000, (u32*)0x02000000, 128, Init4);
+	DoWait(5);
+	readSectorB7Mode((u32*)NDS_HEADER, UDISKROMOFFSET);
+	// readSectorB7Mode((u32*)NDS_HEADER, 0);
+	// cardPolledTransfer((u32)0xB918027E, (u32*)NDS_HEADER, 0x200, InitHeader);
+}
+
 void CardInit(bool Silent, bool SCFGUnlocked, bool SkipSlotReset = false) {
 	if (!Silent) { PrintProgramName(); }
 	DoWait(30);
 	// Do cart init stuff to wake cart up. DLDI init may fail otherwise!
-	sNDSHeaderExt cartHeader;
-	cardInit(&cartHeader, SkipSlotReset);
+	cardInit((sNDSHeaderExt*)cartHeader, SkipSlotReset);
 	char gameCode[7] = {0};
-	tonccpy(gameTitle, cartHeader.gameTitle, 12);
-	tonccpy(gameCode, cartHeader.gameCode, 6);
-	DoWait(60);
+	tonccpy(gameTitle, cartHeader->ndshdr.gameTitle, 12);
+	tonccpy(gameCode, cartHeader->ndshdr.gameCode, 6);
+	
+	ndsHeader = loadHeader(cartHeader); // copy twlHeaderTemp to ndsHeader location
+	
+	InitCartData(ndsHeader, cardGetId());
+	DoWait();
 	if (!Silent) {
 		if (SCFGUnlocked) { iprintf("SCFG_MC Status:  %2x \n\n", REG_SCFG_MC); }
 		iprintf("Detected Cart Name: %12s \n\n", gameTitle);
@@ -118,13 +150,17 @@ void MountFATDevices(bool mountSD) {
 			PrintProgramName();
 		}
 	}
-	if (!dsxMounted)dsxMounted = fatMountSimple("dsx", &io_dsx_);
+	
+	CardInit(false, false);
+		
+	if (!nrioMounted)nrioMounted = fatMountSimple("nrio", &io_nrio_);
+	// nrioMounted = true;
 }
 
-bool DumpSectors(u32 sectorStart, u32 sectorCount, void* buffer, bool allowHiddenRegion) {
+/*bool DumpSectors(u32 sectorStart, u32 sectorCount, void* buffer, bool allowHiddenRegion) {
 	PrintProgramName();
-	if (!dsxMounted) {
-		printf("ERROR! DS-Xtreme DLDI Init failed!\n");
+	if (!nrioMounted) {
+		printf("ERROR! NRIO DLDI Init failed!\n");
 		while(1) {
 			swiWaitForVBlank();
 			scanKeys();
@@ -145,67 +181,21 @@ bool DumpSectors(u32 sectorStart, u32 sectorCount, void* buffer, bool allowHidde
 	PrintProgramName();
 	printf("Reading sectors to ram...\n");
 	if (allowHiddenRegion) {
-		dsx2ReadSectors(sectorStart, sectorCount, buffer);
+		_nrio_readSectorsTest(sectorStart, sectorCount, buffer);
+		// _nrio_readSectors(sectorStart, sectorCount, buffer);
 	} else {
-		dsxReadSectors(sectorStart, sectorCount, buffer);
+		// _nrio_readSectors(sectorStart, sectorCount, buffer);
+		_nrio_readSectorsTest(sectorStart, sectorCount, buffer);
 	}
 	DoWait(80);
 	return true;
-}
+}*/
 
-void DoFullDump(bool SCFGUnlocked) {
-	PrintProgramName();
-	DoWait(60);	
-	iprintf("About to dump %d sectors.\n", NUM_SECTORS);
-	printf("Press A to continue.\n");
-	printf("Press B to abort.\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A)break;
-		if(keysDown() & KEY_B)return;
-	}
-	if (SCFGUnlocked & !sdMounted) {
-		MountFATDevices(SCFGUnlocked);
-		if (!sdMounted) { DoFATerror(true); return; }
-	} 
-	FILE *dest;
-	if (sdMounted) { dest = fopen("sd:/dsx_rom.bin", "wb"); } else { dest = fopen("dsx:/dsx_rom.bin", "wb"); }
-	int SectorsRemaining = NUM_SECTORS;
-	int RefreshTimer = 0;
-	for (int i = 0; i < NUM_SECTORS; i++){ 
-		if (RefreshTimer == 0) {
-			RefreshTimer = StatRefreshRate;
-			swiWaitForVBlank();
-			PrintProgramName();
-			printf("Dumping sectors to dsx_rom.bin.\nPlease Wait...\n\n\n");
-			iprintf("Sectors Remaining: %d \n", SectorsRemaining);
-		}
-		dsx2ReadSectors(i, 1, ReadBuffer);
-		fwrite(ReadBuffer, 0x200, 1, dest); // Used Region
-		SectorsRemaining--;
-		RefreshTimer--;
-	}
-	fclose(dest);
-	PrintProgramName();
-	iprintf("Sector dump finished!\n");
-	iprintf("Press A to return to main menu!\n");
-	iprintf("Press B to exit!\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) return;
-		if(keysDown() & KEY_B) { 
-			ErrorState = true;
-			return;
-		}
-	}
-}
 
 void DoNormalDump(bool SCFGUnlocked) {
 	PrintProgramName();
 	DoWait(60);
-	iprintf("About to dump %d sectors.\n", USED_NUMSECTORS);
+	iprintf("About to dump %d sectors.\n", NUM_SECTORS);
 	printf("Press A to continue.\n");
 	printf("Press B to abort.\n");
 	while(1) {
@@ -222,18 +212,21 @@ void DoNormalDump(bool SCFGUnlocked) {
 		}
 	} 
 	FILE *dest;
-	if (sdMounted) { dest = fopen("sd:/dsx_rom.bin", "wb"); } else { dest = fopen("dsx:/dsx_rom.bin", "wb"); }
-	int SectorsRemaining = USED_NUMSECTORS;
+	// if (sdMounted) { dest = fopen("sd:/nrio_rom.bin", "wb"); } else { dest = fopen("nrio:/nrio_rom.bin", "wb"); }
+	if (sdMounted) { dest = fopen("sd:/nrio_test.bin", "wb"); } else { dest = fopen("nrio:/nrio_test.bin", "wb"); }
+	int SectorsRemaining = NUM_SECTORS;
 	int RefreshTimer = 0;
-	for (int i = 0; i < USED_NUMSECTORS; i++){ 
+	for (int i = 0; i < NUM_SECTORS; i++){ 
 		if (RefreshTimer == 0) {
 			RefreshTimer = StatRefreshRate;
 			swiWaitForVBlank();
 			PrintProgramName();
-			printf("Dumping sectors to dsx_rom.bin.\nPlease Wait...\n\n\n");
+			printf("Dumping sectors to nrio_rom.bin.\nPlease Wait...\n\n\n");
 			iprintf("Sectors Remaining: %d \n", SectorsRemaining);
 		}
-		dsx2ReadSectors(i, 1, ReadBuffer);
+		// _nrio_readSectors(i, 1, ReadBuffer);
+		// _nrio_readSectorsTest(i, 1, ReadBuffer);
+		readSectorB7Mode(ReadBuffer, (u32)(i * 0x200));
 		fwrite(ReadBuffer, 0x200, 1, dest); // Used Region
 		SectorsRemaining--;
 		RefreshTimer--;
@@ -254,309 +247,175 @@ void DoNormalDump(bool SCFGUnlocked) {
 	}
 }
 
-void DoCartSwap() {
+void DoStage2Dump(bool SCFGUnlocked) {
 	PrintProgramName();
-	DoWait(80);
-	if (!DumpSectors(0, USED_NUMSECTORS, CopyBuffer, true))return;
-	if (dsxMounted) {
-		fatUnmount("dsx");
-		dsxMounted = false;
-	}
-	PrintProgramName();
-	printf("\n--------[Swap carts now]--------\n\n");
-	printf("Press A once done...");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) break;
-	}
-	PrintProgramName();
-	printf("Please wait...");
 	DoWait(60);
-	CardInit(false, false, true);
-	printf("Press A to continue...");
+	printf("About to dump stage2 SRL...\n");
+	printf("Press A to continue.\n");
+	printf("Press B to abort.\n");
 	while(1) {
 		swiWaitForVBlank();
 		scanKeys();
-		if(keysDown() & KEY_A) break;
+		if(keysDown() & KEY_A)break;
+		if(keysDown() & KEY_B)return;
 	}
-	PrintProgramName();
-	DoWait(30);
-	if (!fatInitDefault()) {
-		DoFATerror(true);
-		return;
+	if (SCFGUnlocked & !sdMounted) {
+		MountFATDevices(SCFGUnlocked);
+		if (!sdMounted) {
+			DoFATerror(true);
+			return;
+		}
 	}
-	FILE* dest = fopen("/dsx_rom.bin", "wb");
-	PrintProgramName();
-	iprintf("Writing to dsx_rom.bin.\n\nPlease wait...\n");
-	fwrite(CopyBuffer, 0x292000, 1, dest); // Used Region
+	int Sectors, SectorsRemaining;
+	readSectorB7Mode((void*)STAGE2_HEADER, 0);
+	DoWait(2);
+	if ((stage2Header->romSize > 0) && (stage2Header->romSize < 0x00FFFFF)) {
+		Sectors = (int)(stage2Header->romSize / 0x200) + 1; // Add one sector to avoid underdump if size is not a multiple of 128 words
+	} else {
+		Sectors = 20000;
+	}
+	FILE *dest;
+	if (sdMounted) { dest = fopen("sd:/nrio_stage2.nds", "wb"); } else { dest = fopen("nrio:/nrio_stage2.nds", "wb"); }
+	int RefreshTimer = 0;
+	SectorsRemaining = Sectors;
+	for (int i = 0; i < Sectors; i++){ 
+		if (RefreshTimer == 0) {
+			RefreshTimer = StatRefreshRate;
+			swiWaitForVBlank();
+			PrintProgramName();
+			printf("Dumping to nrio_stage2.nds...\nPlease Wait...\n\n\n");
+			iprintf("Sectors remaining: %d \n", SectorsRemaining);
+		}
+		readSectorB7Mode(ReadBuffer, (u32)(i * 0x200));
+		fwrite(ReadBuffer, 0x200, 1, dest);
+		SectorsRemaining--;
+		RefreshTimer--;
+	}
 	fclose(dest);
-	fflush(dest);
 	PrintProgramName();
-	iprintf("Sector dump finished!\n");
-	iprintf("Press A to exit!\n");
+	iprintf("Dump finished!\n");
+	iprintf("Press A to return to main menu!\n");
+	iprintf("Press B to exit!\n");
 	while(1) {
 		swiWaitForVBlank();
 		scanKeys();
-		if(keysDown() & KEY_A) {
-			ErrorState = true; 
+		if(keysDown() & KEY_A) return;
+		if(keysDown() & KEY_B) { 
+			ErrorState = true;
 			return;
 		}
 	}
 }
 
-void DoBannerWrite(bool SCFGUnlocked) {
+void DoUdiskDump(bool SCFGUnlocked) {
 	PrintProgramName();
-	printf("About to write custom banner.\n");
 	DoWait(60);
-	printf("Press A to begin!\nPress B to abort!\n");
+	printf("About to dump uDisk...\n");
+	printf("Press A to continue.\n");
+	printf("Press B to abort.\n");
 	while(1) {
 		swiWaitForVBlank();
 		scanKeys();
-		if(keysDown() & KEY_A) break;
-		if(keysDown() & KEY_B) return;
+		if(keysDown() & KEY_A)break;
+		if(keysDown() & KEY_B)return;
 	}
-	DoWait();
-	if (!sdMounted && !dsxMounted) {		
+	if (SCFGUnlocked & !sdMounted) {
 		MountFATDevices(SCFGUnlocked);
-		if (!sdMounted && !dsxMounted) {
+		if (!sdMounted) {
 			DoFATerror(true);
 			return;
 		}
 	}
-	PrintProgramName();
-	printf("Reading dsx_banner.bin...\n");
-	FILE *bannerFile;
-	if (sdMounted) { bannerFile = fopen("sd:/dsx_banner.bin", "rb"); } else { bannerFile = fopen("dsx:/dsx_banner.bin", "rb"); }
-	if (bannerFile) {
-		fread(BannerBuffer, 1, BANNERBUFFERSIZE, bannerFile);
-		PrintProgramName();
-		printf("Do not power off!\n");
-		printf("Writing new banner to cart...\n");
-		DoWait(60);
-		fclose(bannerFile);
-		tempSectorTracker = BANNERSECTORCOUNT;
-		dsx2WriteSectors(BANNERSECTORSTART, BANNERSECTORCOUNT, BannerBuffer);
-		PrintProgramName();
-		printf("Finished!\n\nPress A to return to main menu!\n");
+	int Sectors, SectorsRemaining;
+	readSectorB7Mode((void*)UDISK_HEADER, UDISKROMOFFSET);
+	DoWait(2);
+	if ((uDiskHeader->romSize > 0) && (uDiskHeader->romSize < 0x00FFFFF)) {
+		Sectors = (int)(uDiskHeader->romSize / 0x200) + 1; // Add one sector to avoid underdump if size is not a multiple of 128 words
 	} else {
-		PrintProgramName();
-		printf("Banner file not found!\n\nPress A to return to main menu!\n");
+		Sectors = 20000;
 	}
+	FILE *dest;
+	if (sdMounted) { dest = fopen("sd:/udisk.nds", "wb"); } else { dest = fopen("nrio:/udisk.nds", "wb"); }
+	int RefreshTimer = 0;
+	SectorsRemaining = Sectors;
+	for (int i = 0; i < Sectors; i++){ 
+		if (RefreshTimer == 0) {
+			RefreshTimer = StatRefreshRate;
+			swiWaitForVBlank();
+			PrintProgramName();
+			printf("Dumping to udisk.nds...\nPlease Wait...\n\n\n");
+			iprintf("Sectors remaining: %d \n", SectorsRemaining);
+		}
+		readSectorB7Mode(ReadBuffer, (u32)(i * 0x200) + UDISKROMOFFSET);
+		fwrite(ReadBuffer, 0x200, 1, dest);
+		SectorsRemaining--;
+		RefreshTimer--;
+	}
+	fclose(dest);
+	PrintProgramName();
+	iprintf("Dump finished!\n");
+	iprintf("Press A to return to main menu!\n");
+	iprintf("Press B to exit!\n");
 	while(1) {
 		swiWaitForVBlank();
 		scanKeys();
 		if(keysDown() & KEY_A) return;
-	}
-}
-
-/*void DoHeaderWrite(bool SCFGUnlocked) {
-	PrintProgramName();
-	printf("About to write custom header.\n");
-	DoWait(60);
-	printf("Press A to begin!\nPress B to abort!\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) break;
-		if(keysDown() & KEY_B) return;
-	}
-	DoWait();
-	if (!sdMounted && !dsxMounted) {		
-		MountFATDevices(SCFGUnlocked);
-		if (!sdMounted && !dsxMounted) {
-			DoFATerror(true);
+		if(keysDown() & KEY_B) { 
+			ErrorState = true;
 			return;
 		}
-	}
-	PrintProgramName();
-	printf("Reading dsx_header.bin...\n");
-	FILE *headerFile;
-	if (sdMounted) { headerFile = fopen("sd:/dsx_header.bin", "rb"); } else { headerFile = fopen("dsx:/dsx_header.bin", "rb"); }
-	if (headerFile) {
-		fread(ReadBuffer, 1, 0x200, headerFile);
-		PrintProgramName();
-		printf("Do not power off!\n");
-		printf("Writing new header to cart...\n");
-		DoWait(60);
-		fclose(headerFile);
-		tempSectorTracker = HEADERSECTORCOUNT;
-		dsx2WriteSectors(HEADERSECTORSTART, HEADERSECTORCOUNT, ReadBuffer);
-		PrintProgramName();
-		printf("Finished!\n\nPress A to return to main menu!\n");
-	} else {
-		PrintProgramName();
-		printf("Header file not found!\n\nPress A to return to main menu!\n");
-	}
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) return;
-	}
-}*/
-
-void DoArmBinaryWrites(bool SCFGUnlocked) {
-	PrintProgramName();
-	printf("About to write custom arm\nbinaries!\n\n");
-	DoWait(60);
-	printf("Press A to begin!\nPress B to abort!\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) break;
-		if(keysDown() & KEY_B) return;
-	}
-	DoWait();
-	if (!sdMounted && !dsxMounted) {		
-		MountFATDevices(SCFGUnlocked);
-		if (!sdMounted && !dsxMounted) {
-			DoFATerror(true);
-			return;
-		}
-	}
-	PrintProgramName();
-	printf("Reading dsx_firmware.nds...\n");
-	FILE *ndsFile;
-	if (sdMounted) {
-		ndsFile = fopen("sd:/dsx_firmware.nds", "rb");
-	} else { 
-		ndsFile = fopen("dsx:/dsx_firmware.nds", "rb"); 
-	}
-	if (!ndsFile) {
-		PrintProgramName();
-		printf("Error! dsx_firmware.nds\nis missing!\n");
-		printf("Press A to return to Main Menu!\n");
-		while(1) {
-			swiWaitForVBlank();
-			scanKeys();
-			if(keysDown() & KEY_A)return;			
-		}
-	}
-	printf("Reading dsx_firmware.nds header...\n");
-	ALIGN(4) tNDSHeader* srcNdsHeader = (tNDSHeader*)malloc(sizeof(tNDSHeader));
-	fread(srcNdsHeader, sizeof(tNDSHeader), 1, ndsFile);
-	// sanity check the binary sizes. We do have limits, after all
-	if(srcNdsHeader->arm9binarySize > ARM9BUFFERSIZE || srcNdsHeader->arm7binarySize > ARM7BUFFERSIZE)
-	{
-		PrintProgramName();
-		printf("Error! The ARM9 or ARM7 binary is\ntoo large!\n");
-		if(srcNdsHeader->arm9binarySize > ARM9BUFFERSIZE)
-			printf("ARM9 size must be under\n%d bytes!", ARM9BUFFERSIZE);
-		if(srcNdsHeader->arm7binarySize > ARM7BUFFERSIZE)
-			printf("ARM7 size must be under\n%d bytes!", ARM7BUFFERSIZE);
-		printf("Press A to return to Main Menu!\n");
-		fclose(ndsFile);
-		free(srcNdsHeader);
-		while(1) {
-			swiWaitForVBlank();
-			scanKeys();
-			if(keysDown() & KEY_A)return;			
-		}
-	}
-	/*
-		sanity check the load/execute addresses.
-		These must match the original DS-Xtreme header, which, as of 1.1.3, are the following:
-		ARM9 = 0x02000000, ARM7 = 0x03800000
-	*/
-	if(
-		(u32)srcNdsHeader->arm9executeAddress != 0x02000000 ||
-		(u32)srcNdsHeader->arm9destination != 0x02000000 ||
-		(u32)srcNdsHeader->arm7executeAddress != 0x03800000 ||
-		(u32)srcNdsHeader->arm7destination != 0x03800000
-	)
-	{
-		PrintProgramName();
-		printf("Error! The ARM9 or ARM7 binary cannot\nboot on this flashcart!\n");
-		if((u32)srcNdsHeader->arm9executeAddress != 0x02000000 || (u32)srcNdsHeader->arm9destination != 0x02000000)
-			printf("ARM9 must be located at\naddress 0x02000000!");
-		if((u32)srcNdsHeader->arm7executeAddress != 0x03800000 || (u32)srcNdsHeader->arm7destination != 0x03800000)
-			printf("ARM7 must be located at\naddress 0x03800000!");
-		printf("Press A to return to Main Menu!\n");
-		fclose(ndsFile);
-		free(srcNdsHeader);
-		while(1) {
-			swiWaitForVBlank();
-			scanKeys();
-			if(keysDown() & KEY_A)return;			
-		}
-	}
-	
-	printf("Reading ARM9...\n");
-	fseek(ndsFile, srcNdsHeader->arm9romOffset, SEEK_SET);
-	fread(CopyBuffer, 1, srcNdsHeader->arm9binarySize, ndsFile);
-	PrintProgramName();
-	printf("Writing new arm9 binary to cart...\n");
-	printf("Do not power off!\n");
-	DoWait(60);
-	tempSectorTracker = ARM9SECTORCOUNT;
-	dsx2WriteSectors(ARM9SECTORSTART, ARM9SECTORCOUNT, CopyBuffer);
-	DoWait(60);
-	PrintProgramName();
-	printf("Reading ARM7...\n");
-	fseek(ndsFile, srcNdsHeader->arm7romOffset, SEEK_SET);
-	fread(CopyBuffer, 1, srcNdsHeader->arm7binarySize, ndsFile);
-	PrintProgramName();
-	printf("Writing new arm7 binary to cart...\n");
-	printf("Do not power off!\n");
-	fclose(ndsFile);
-	free(srcNdsHeader);
-	DoWait(60);
-	PrintProgramName();
-	tempSectorTracker = ARM7SECTORCOUNT;
-	dsx2WriteSectors(ARM7SECTORSTART, ARM7SECTORCOUNT, CopyBuffer);
-	PrintProgramName();
-	printf("Finished!\n\nPress A to return to main menu!\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) return;
 	}
 }
 
 
 int MainMenu(bool SCFGUnlocked) {
-	int Value = 0;
 	PrintProgramName();
-	printf("A to dump used hidden region\n");
-	if (!SCFGUnlocked)printf("(X to switch Slot1 DLDI target)\n\n");
+	printf("Press [A] to dump Stage2.\n");
+	printf("Press [X] to dump UDISK.\n");
+	printf("Press [DPAD UP] to do test dump.\n");
+	printf("\nPress [B] to abort and exit.\n");
 	// printf("DPAD DOWN to write custom header\n");
-	printf("DPAD UP to dump full hidden\nregion\n\n");
-	printf("START to write new banner\n");
-	printf("SELECT to write new Arm binaries\n\n\n");
-	printf("B to abort and exit\n");
+	// printf("START to write new banner\n");
+	// printf("SELECT to write new Arm binaries\n\n\n");
 	while(1) {
 		swiWaitForVBlank();
 		scanKeys();
 		switch (keysDown()){
-			case KEY_A: 	{ return Value;} break;
-			case KEY_X: 	{ if (!SCFGUnlocked)return 1; } break;
-			case KEY_START: { return 2;} break;
-			case KEY_SELECT:{ return 3;} break;
-			case KEY_B: 	{ return 4;} break;
-			case KEY_UP: 	{ return 5;} break;
-			// case KEY_DOWN:	{ return 6;} break;
+			case KEY_A: 	{ return 0; } break;
+			case KEY_X: 	{ return 1; } break;
+			case KEY_UP: 	{ return 2; } break;
+			case KEY_B: 	{ return 3; } break;
+			/*case KEY_START: { return 4; } break;
+			case KEY_SELECT:{ return 5; } break;
+			case KEY_DOWN:	{ return 6; } break;*/
 		}
 	}
-	return Value;
+	return 0;
 }
+
+extern bool __dsimode;
+bool forceNTRMode = false;
 
 int main() {
 	// Wait till Arm7 is ready
 	// Some SCFG values may need updating by arm7. Wait till that's done.
 	bool SCFGUnlocked = false;
-	if ((REG_SCFG_EXT & BIT(31))) { 
-		// Set NTR clocks. (DSx Does not play nice at the higher clock speeds. You've been warned!
-		REG_SCFG_CLK = 0x00;
-		REG_SCFG_EXT &= ~(1UL << 13); // Disable VRAM boost. Another thing that might throw off DSX write wait timers.
+	if ((REG_SCFG_EXT & BIT(31))) {
+		// REG_SCFG_CLK = 0x80;
+		// REG_SCFG_EXT &= ~(1UL << 13);
+		/*if (forceNTRMode) { 
+			REG_SCFG_EXT &= ~(1UL << 14);
+			REG_SCFG_EXT &= ~(1UL << 15);
+			__dsimode = false;
+		}*/
 		SCFGUnlocked = true;
-		DoWait(10);
+		DoWait(60);
 	}
 	defaultExceptionHandler();
-	BootSplashInit();
-	sysSetCardOwner (BUS_OWNER_ARM9);
-	sysSetCartOwner (BUS_OWNER_ARM9);
+	BootSplashInit(false);
+	sysSetCardOwner(BUS_OWNER_ARM9);
 	MountFATDevices(SCFGUnlocked);
-	if (!dsxMounted) {
+	if (!nrioMounted) {
 		DoFATerror(true);
 		consoleClear();
 		fifoSendValue32(FIFO_USER_03, 1);
@@ -564,13 +423,10 @@ int main() {
 	}
 	while(1) {
 		switch (MainMenu(SCFGUnlocked)) {
-			case 0: { DoNormalDump(SCFGUnlocked); } break;
-			case 1: { if (!SCFGUnlocked)DoCartSwap(); } break;
-			case 2: { DoBannerWrite(SCFGUnlocked); } break;
-			case 3: { DoArmBinaryWrites(SCFGUnlocked); } break;
-			case 4: { ErrorState = true; } break;
-			case 5: { DoFullDump(SCFGUnlocked); } break;
-			// case 6: { DoHeaderWrite(SCFGUnlocked); } break;
+			case 0: { DoStage2Dump(SCFGUnlocked); } break;
+			case 1: { DoUdiskDump(SCFGUnlocked); } break;
+			case 2: { DoNormalDump(SCFGUnlocked); } break;
+			case 3: { ErrorState = true; } break;
 		}
 		if (ErrorState) {
 			consoleClear();

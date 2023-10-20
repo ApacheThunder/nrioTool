@@ -34,16 +34,26 @@ void VblankHandler(void) {
 
 void powerButtonCB() { exitflag = true; }
 
+extern bool __dsimode;
+bool forceNTRMode = false;
+
 //---------------------------------------------------------------------------------
 int main() {
 //---------------------------------------------------------------------------------
 	bool UnlockedSCFG = false;
 	if ((REG_SCFG_EXT & BIT(31))) {
+		// __dsimode = false;
 		// Enable SD/MMC access
 		REG_SCFG_EXT |= BIT(18);
 		// Use NTR settings but keep SD/MMC bit enabled. (needs to be set in tandom with SCFG_EXT bit 18 else SD access will not work.
-		REG_SCFG_CLK = 0x101;
+		REG_SCFG_CLK |= BIT(0);
+		// REG_SCFG_CLK = 0x101;
 		UnlockedSCFG = true;
+		// if (forceNTRMode)REG_SCFG_ROM = 0x703;
+		/*if (REG_SNDEXTCNT != 0) {
+			i2cWriteRegister(0x4A, 0x12, 0x00);	// Press power-button for auto-reset
+			i2cWriteRegister(0x4A, 0x70, 0x01);	// Bootflag = Warmboot/SkipHealthSafety
+		}*/
 	}
 	
 	if (UnlockedSCFG) {
@@ -68,7 +78,7 @@ int main() {
 	irqSet(IRQ_VBLANK, VblankHandler);
 	irqEnable( IRQ_VBLANK | IRQ_VCOUNT );
 	setPowerButtonCB(powerButtonCB);
-	// fifoSendValue32(FIFO_RSVD_01, 1);
+	if (forceNTRMode && (REG_SCFG_EXT & BIT(31)))REG_SCFG_EXT &= ~(1UL << 31);
 	// Keep the ARM7 mostly idle
 	while (!exitflag) {
 		if (0 == (REG_KEYINPUT & (KEY_SELECT | KEY_START | KEY_L | KEY_R))) { exitflag = true; }

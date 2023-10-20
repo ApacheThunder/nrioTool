@@ -30,7 +30,7 @@ CFLAGS	:=	-g -Wall -Os \
 		$(ARCH)
 
 CFLAGS	+=	$(INCLUDE) -DARM7
-CXXFLAGS	:=	$(CFLAGS) -fno-rtti -fno-exceptions -fno-rtti
+CXXFLAGS	:=	$(CFLAGS) -fno-rtti -fno-exceptions
 
 
 ASFLAGS	:=	-g $(ARCH)

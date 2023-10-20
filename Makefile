@@ -9,11 +9,11 @@ endif
 
 include $(DEVKITARM)/ds_rules
 
-export TARGET		:=	dsxTool
+export TARGET		:=	nrioTool
 export TOPDIR		:=	$(CURDIR)
 
 export VERSION_MAJOR	:= 1
-export VERSION_MINOR	:= 3
+export VERSION_MINOR	:= 0
 export VERSTRING	:=	$(VERSION_MAJOR).$(VERSION_MINOR)
 
 .PHONY: clean arm7/$(TARGET).elf arm9/$(TARGET).elf
@@ -31,8 +31,8 @@ dist:	all
 
 $(TARGET).nds:	$(TARGET).arm7 $(TARGET).arm9
 	ndstool	-c $(TARGET).nds -7 $(TARGET).arm7.elf -9 $(TARGET).arm9.elf \
-			-b $(CURDIR)/icon.bmp "DS-Xtreme NAND Tool;NAND Dumper & Writer;By Apache Thunder" \
-			-g DSXT 01 "DSXtremeTool" -z 80040000 -u 00030004 -a 00000138 -p 0001
+			-b $(CURDIR)/icon.bmp "NAND Cart Tool; For N-Card/Clones; By Apache Thunder" \
+			-g DSXT 01 "NRIOTOOL" -z 80040000 -u 00030004 -a 00000138 -p 0001
 
 $(TARGET).arm7	: arm7/$(TARGET).elf
 	cp arm7/$(TARGET).elf $(TARGET).arm7.elf

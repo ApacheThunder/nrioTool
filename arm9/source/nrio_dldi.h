@@ -16,26 +16,23 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef DSX_DLDI_H
-#define DSX_DLDI_H
+#ifndef NRIO_DLDI_H
+#define NRIO_DLDI_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern void PrintProgramName(void);
-void dsxWaitMs(unsigned int requestTime);
-void dsxSendCommand(unsigned int command[2], unsigned int pageSize, unsigned int latency, unsigned char *buf);
-void dsxPoll(void);
-void dsxZoneSwitch(unsigned int lba);
-bool dsxStartup(void);
-bool dsxIsInserted (void);
-bool dsxClearStatus (void);
-bool dsxReadSectors (u32 sector, u32 numSectors, void* buffer);
-bool dsxWriteSectors (u32 sector, u32 numSectors, void* buffer);
-bool dsx2ReadSectors (u32 sector, u32 numSectors, void* buffer);
-bool dsx2WriteSectors (u32 sector, u32 numSectors, void* buffer);
-bool dsxShutdown(void);
+bool _nrio_startUp (void);
+bool _nrio_isInserted (void);
+bool _nrio_readSectors (u32 sector, u32 numSecs, void* buffer);
+bool _nrio_readSectorsTest (u32 sector, u32 numSecs, void* buffer);
+bool _nrio_writeSectors (u32 sector, u32 numSectors, void* buffer);
+bool _nrio_clearStatus (void);
+bool _nrio_shutdown (void);
+
+void readCardB7Mode(void* destination, u32 rom_offset, u32 num_words);
+void readSectorB7Mode(void* destination, u32 rom_offset);
 
 #ifdef __cplusplus
 }

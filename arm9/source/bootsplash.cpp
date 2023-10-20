@@ -40,18 +40,20 @@ void vramcpy_ui (void* dest, const void* src, int size)
 	}
 }
 
-void BootSplashInit() {
+void BootSplashInit(bool isNTRMode) {
 	videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE);
 	vramSetBankA (VRAM_A_MAIN_BG_0x06000000);
 	REG_BG0CNT = BG_MAP_BASE(0) | BG_COLOR_256 | BG_TILE_BASE(2);
 	BG_PALETTE[0]=0;
 	BG_PALETTE[255]=0xffff;
 	u16* bgMapTop = (u16*)SCREEN_BASE_BLOCK(0);
-	for (int i = 0; i < CONSOLE_SCREEN_WIDTH*CONSOLE_SCREEN_HEIGHT; i++) {
-		bgMapTop[i] = (u16)i;
-	}
+	for (int i = 0; i < CONSOLE_SCREEN_WIDTH*CONSOLE_SCREEN_HEIGHT; i++) { bgMapTop[i] = (u16)i; }
 	// Display DSX Logo Screen
-	swiDecompressLZSSVram ((void*)topLogoTiles, (void*)CHAR_BASE_BLOCK(2), 0, &decompressBiosCallback);
+	if (isNTRMode) {
+		swiDecompressLZSSVramNTR((void*)topLogoTiles, (void*)CHAR_BASE_BLOCK(2), 0, &decompressBiosCallback);
+	} else {
+		swiDecompressLZSSVram ((void*)topLogoTiles, (void*)CHAR_BASE_BLOCK(2), 0, &decompressBiosCallback);
+	}
 	vramcpy_ui (&BG_PALETTE[0], topLogoPal, topLogoPalLen);
 	// Enable console
 	consoleDemoInit();

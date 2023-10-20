@@ -24,8 +24,7 @@ extern "C" {
 #endif
 
 void vramcpy_ui (void* dest, const void* src, int size);
-void LoadScreen (void);
-void BootSplashInit (void);
+void BootSplashInit (bool isNTRMode);
 
 #ifdef __cplusplus
 }
