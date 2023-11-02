@@ -13,7 +13,7 @@ export TARGET		:=	nrioTool
 export TOPDIR		:=	$(CURDIR)
 
 export VERSION_MAJOR	:= 1
-export VERSION_MINOR	:= 0
+export VERSION_MINOR	:= 1
 export VERSTRING	:=	$(VERSION_MAJOR).$(VERSION_MINOR)
 
 .PHONY: clean arm7/$(TARGET).elf arm9/$(TARGET).elf

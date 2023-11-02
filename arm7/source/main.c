@@ -34,8 +34,8 @@ void VblankHandler(void) {
 
 void powerButtonCB() { exitflag = true; }
 
-extern bool __dsimode;
-bool forceNTRMode = false;
+// extern bool __dsimode;
+// bool forceNTRMode = false;
 
 //---------------------------------------------------------------------------------
 int main() {
@@ -78,7 +78,7 @@ int main() {
 	irqSet(IRQ_VBLANK, VblankHandler);
 	irqEnable( IRQ_VBLANK | IRQ_VCOUNT );
 	setPowerButtonCB(powerButtonCB);
-	if (forceNTRMode && (REG_SCFG_EXT & BIT(31)))REG_SCFG_EXT &= ~(1UL << 31);
+	// if (forceNTRMode && (REG_SCFG_EXT & BIT(31)))REG_SCFG_EXT &= ~(1UL << 31);
 	// Keep the ARM7 mostly idle
 	while (!exitflag) {
 		if (0 == (REG_KEYINPUT & (KEY_SELECT | KEY_START | KEY_L | KEY_R))) { exitflag = true; }

@@ -319,8 +319,7 @@ static void switchToTwlBlowfish(sNDSHeaderExt* ndsHeader) {
 }
 
 
-int cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset)
-{
+u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	u32 portFlagsKey1, portFlagsSecRead;
 	normalChip = false; // As defined by GBAtek, normal chip secure area and header are accessed in blocks of 0x200, other chip in blocks of 0x1000
 	nandChip = false;
@@ -333,17 +332,14 @@ int cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset)
 	twlBlowfish = false;
 
 	sysSetCardOwner (BUS_OWNER_ARM9);	// Allow arm9 to access NDS cart
-	if ((sdMounted | isDSiMode()) && !SkipSlotReset) {
+	if (isDSiMode() && !SkipSlotReset) {
 		// Reset card slot
 		disableSlot1();
 		for(i = 0; i < 25; i++) { swiWaitForVBlank(); }
 		enableSlot1();
 		for(i = 0; i < 15; i++) { swiWaitForVBlank(); }
-
 		// Dummy command sent after card reset
-		cardParamCommand (CARD_CMD_DUMMY, 0,
-			CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
-			NULL, 0);
+		cardParamCommand (CARD_CMD_DUMMY, 0, CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F), NULL, 0);
 	}
 
 	REG_ROMCTRL=0;
@@ -513,12 +509,9 @@ int cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset)
 	return ERR_NONE;
 }
 
-u32 cardGetId() {
-	return iCardId;
-}
+u32 cardGetId() { return iCardId; }
 
-void cardRead (u32 src, void* dest, bool nandSave)
-{
+void cardRead (u32 src, void* dest, bool nandSave) {
 	sNDSHeaderExt* ndsHeader = (sNDSHeaderExt*)headerData;
 
 	if (src >= 0 && src < 0x1000) {
@@ -543,8 +536,8 @@ void cardRead (u32 src, void* dest, bool nandSave)
 			cardParamCommand(CARD_CMD_NAND_ROM_MODE, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
 			nandSection = -1;
 		} else if (src >= cardNandRwStart && nandSection != (src - cardNandRwStart) / (128 << 10) && nandSave) {
-			if(nandSection != -1) // Need to switch back to ROM mode before switching to another RW section
-				cardParamCommand(CARD_CMD_NAND_ROM_MODE, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
+			// Need to switch back to ROM mode before switching to another RW section
+			if(nandSection != -1) cardParamCommand(CARD_CMD_NAND_ROM_MODE, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
 			cardParamCommand(CARD_CMD_NAND_RW_MODE, src, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
 			nandSection = (src - cardNandRwStart) / (128 << 10);
 		}
@@ -560,14 +553,12 @@ void cardRead (u32 src, void* dest, bool nandSave)
 }
 
 // src must be a 0x800 byte array
-void cardWriteNand (void* src, u32 dest)
-{
-	if (dest < cardNandRwStart || !nandChip)
-		return;
+void cardWriteNand (void* src, u32 dest) {
+	if (dest < cardNandRwStart || !nandChip)return;
 
 	if (nandSection != (dest - cardNandRwStart) / (128 << 10)) {
-		if(nandSection != -1) // Need to switch back to ROM mode before switching to another RW section
-			cardParamCommand(CARD_CMD_NAND_ROM_MODE, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
+		// Need to switch back to ROM mode before switching to another RW section
+		if(nandSection != -1)cardParamCommand(CARD_CMD_NAND_ROM_MODE, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
 		cardParamCommand(CARD_CMD_NAND_RW_MODE, dest, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
 		nandSection = (dest - cardNandRwStart) / (128 << 10);
 	}
@@ -588,3 +579,4 @@ void cardWriteNand (void* src, u32 dest)
 
 	cardParamCommand(CARD_CMD_NAND_DISCARD_BUFFER, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
 }
+

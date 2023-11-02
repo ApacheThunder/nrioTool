@@ -16,40 +16,21 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef READ_CARD_H
-#define READ_CARD_H
+#ifndef NDS_CARD_H
+#define NDS_CARD_H
 
 #include <nds/ndstypes.h>
-#include <nds/memory.h>
-#include <stdlib.h>
-
-#include "ndsheaderbanner.h"
-
-#define CARD_NDS_HEADER_SIZE (0x200)
-#define CARD_SECURE_AREA_OFFSET (0x4000)
-#define CARD_SECURE_AREA_SIZE (0x4000)
-#define CARD_DATA_OFFSET (0x8000)
-#define CARD_DATA_BLOCK_SIZE (0x200)
-#define MODC_AREA_SIZE          0x4000
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern u32 cardNandRomEnd;
-extern u32 cardNandRwStart;
 
-u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset);
+void getHeader (u32* ndsHeader);
 
-void cardRead (u32 src, void* dest, bool nandSave);
-
-u32 cardGetId (void);
-
-void cardWriteNand (void* src, u32 dest);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // READ_CARD_H
-
+#endif // NDS_CARD_H

@@ -213,7 +213,7 @@ void readCardB7Mode(void* destination, u32 rom_offset, u32 num_words) {
 }
 
 
-void readSectorB7Mode(void* destination, u32 rom_offset) {
+/*void readSectorB7Mode(void* destination, u32 rom_offset) {
 	u8 command[8];
 	command[7] = 0xB7;
 	command[6] = (rom_offset >> 24) & 0xFF;
@@ -224,8 +224,12 @@ void readSectorB7Mode(void* destination, u32 rom_offset) {
 	command[1] = 0;
 	command[0] = 0;
 	cardPolledTransfer(0xB918027E, destination, 128, command);
-}
+}*/
 
+
+void readSectorB7Mode(void* destination, u32 rom_offset) {
+	cardParamCommand (0xB7, rom_offset, 0xB918027E, destination, 128);
+}
 
 
 /*void readCardB7(void* destination, u32 rom_offset, u32 num_words) {
