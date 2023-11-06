@@ -19,14 +19,14 @@ BUILD    := build
 SOURCES  := source
 INCLUDES := include
 DATA     := ../data
-GRAPHICS := graphics
+GRAPHICS := gfx
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
-ARCH	:= 	-mthumb -mthumb-interwork -march=armv5te -mtune=arm946e-s
+ARCH := -mthumb -mthumb-interwork -march=armv5te -mtune=arm946e-s
 
-CFLAGS  :=	-g -Wall -Os\
+CFLAGS   := -g -Wall -Os\
             $(ARCH) $(INCLUDE) -DARM9 -D_NO_BOOTSTUB_
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions
 ASFLAGS  := -g $(ARCH)
@@ -52,16 +52,16 @@ ifneq ($(BUILD),$(notdir $(CURDIR)))
 
 export ARM9ELF := $(CURDIR)/$(TARGET).elf
 
-export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
-                $(foreach dir,$(DATA),$(CURDIR)/$(dir)) \
-				$(foreach dir,$(GRAPHICS),$(CURDIR)/$(dir))
+export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))\
+                $(foreach dir,$(DATA),$(CURDIR)/$(dir))\
+                $(foreach dir,$(GRAPHICS),$(CURDIR)/$(dir))
 
 export DEPSDIR := $(CURDIR)/$(BUILD)
 
 CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
 CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
 SFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
-BMPFILES := $(foreach dir,$(GRAPHICS),$(notdir $(wildcard $(dir)/*.bmp)))
+PNGFILES := $(foreach dir,$(GRAPHICS),$(notdir $(wildcard $(dir)/*.png)))
 BINFILES := $(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
 
 #---------------------------------------------------------------------------------
@@ -82,9 +82,9 @@ export OFILES_BIN   :=	$(addsuffix .o,$(BINFILES))
 
 export OFILES_SOURCES := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 
-export OFILES := $(BMPFILES:.bmp=.o) $(OFILES_BIN) $(OFILES_SOURCES)
+export OFILES := $(PNGFILES:.png=.o) $(OFILES_BIN) $(OFILES_SOURCES)
 
-export HFILES := $(BMPFILES:.bmp=.h) $(addsuffix .h,$(subst .,_,$(BINFILES)))
+export HFILES := $(PNGFILES:.png=.h) $(addsuffix .h,$(subst .,_,$(BINFILES)))
 
 export INCLUDE  := $(foreach dir,$(INCLUDES),-iquote $(CURDIR)/$(dir))\
                    $(foreach dir,$(LIBDIRS),-I$(dir)/include)\
@@ -126,7 +126,7 @@ $(ARM9ELF) : $(OFILES)
 # add additional rules like this for each image extension
 # you use in the graphics folders
 #---------------------------------------------------------------------------------
-%.s %.h: %.bmp %.grit
+%.s %.h: %.png %.grit
 #---------------------------------------------------------------------------------
 	grit $< -fts -o$*
 
@@ -135,4 +135,3 @@ $(ARM9ELF) : $(OFILES)
 #---------------------------------------------------------------------------------------
 endif
 #---------------------------------------------------------------------------------------
-

@@ -17,48 +17,31 @@
 */
 
 #include <nds.h>
-// #include <stdio.h>
-// #include <stdlib.h>
-
-
-#include "bios_decompress_callback.h"
 
 #include "bootsplash.h"
 
 #include "topLogo.h"
+#include "botConsole.h"
 
 #define CONSOLE_SCREEN_WIDTH 32
 #define CONSOLE_SCREEN_HEIGHT 24
 
-void vramcpy_ui (void* dest, const void* src, int size) 
-{
-	u16* destination = (u16*)dest;
-	u16* source = (u16*)src;
-	while (size > 0) {
-		*destination++ = *source++;
-		size-=2;
-	}
-}
-
 void BootSplashInit(bool isDSiMode = true) {
-	videoSetMode(MODE_0_2D | DISPLAY_BG0_ACTIVE);
-	vramSetBankA (VRAM_A_MAIN_BG_0x06000000);
-	REG_BG0CNT = BG_MAP_BASE(0) | BG_COLOR_256 | BG_TILE_BASE(2);
-	BG_PALETTE[0]=0;
-	BG_PALETTE[255]=0xffff;
-	u16* bgMapTop = (u16*)SCREEN_BASE_BLOCK(0);
-	for (int i = 0; i < CONSOLE_SCREEN_WIDTH*CONSOLE_SCREEN_HEIGHT; i++) { bgMapTop[i] = (u16)i; }
-	// Display DSX Logo Screen
-	if (isDSiMode) {
-		swiDecompressLZSSVram ((void*)topLogoTiles, (void*)CHAR_BASE_BLOCK(2), 0, &decompressBiosCallback);
-	} else {
-		swiDecompressLZSSVramNTR((void*)topLogoTiles, (void*)CHAR_BASE_BLOCK(2), 0, &decompressBiosCallback);
-	}
-	vramcpy_ui (&BG_PALETTE[0], topLogoPal, topLogoPalLen);
-	// Enable console
-	consoleDemoInit();
-	// Change console palette so text is black and background is white to match top screen logo color scheme
-	BG_PALETTE_SUB[0] = RGB15(31,31,31);
-	BG_PALETTE_SUB[255] = RGB15(0,0,0);
+	videoSetMode(MODE_4_2D);
+	videoSetModeSub(MODE_3_2D);
+	vramSetBankA (VRAM_A_MAIN_BG);
+	vramSetBankC (VRAM_C_SUB_BG);
+	int bg = bgInit(3, BgType_Bmp8, BgSize_B8_256x256, 1, 0);
+	int bgSub = bgInitSub(3, BgType_Bmp8, BgSize_B8_256x256, 1, 0);
+	dmaCopy(topLogoBitmap, bgGetGfxPtr(bg), 256*256);
+	dmaCopy(topLogoPal, BG_PALETTE, 256*2);
+	
+	PrintConsole *console = consoleInit(0,0, BgType_Text4bpp, BgSize_T_256x256, 4, 6, false, true);
+	consoleSetWindow(console, 0, 6, 32, 24);
+	
+	dmaCopy(botConsoleBitmap, bgGetGfxPtr(bgSub), 256*256);
+	dmaCopy(botConsolePal, BG_PALETTE_SUB, 256*2);
+	
+	BG_PALETTE_SUB[255] = RGB15(31,31,31);
 }
 

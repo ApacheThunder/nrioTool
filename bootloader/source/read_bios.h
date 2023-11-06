@@ -15,24 +15,7 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include <nds/ndstypes.h>
 
-#ifndef BIOS_DECOMPRESS_CALLBACK_H
-#define BIOS_DECOMPRESS_CALLBACK_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#include <nds/bios.h>
-#include <nds/ndstypes.h>
-
-extern TDecompressionStream decompressBiosCallback;
-
-
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif // BIOS_DECOMPRESS_CALLBACK_H
+void readBios (u8* dest, u32 src, u32 size);
 

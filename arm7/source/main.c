@@ -5,6 +5,8 @@
 
 #define SD_IRQ_STATUS (*(vu32*)0x400481C)
 
+#define BASE_DELAY (100)
+
 volatile bool exitflag = false;
 
 void my_installSystemFIFO(void);
@@ -17,8 +19,8 @@ u8 my_i2cWriteRegister(u8 device, u8 reg, u8 data);
 void ReturntoDSiMenu() {
 //---------------------------------------------------------------------------------
 	if (isDSiMode()) {
-		i2cWriteRegister(0x4A, 0x70, 0x01);		// Bootflag = Warmboot/SkipHealthSafety
-		i2cWriteRegister(0x4A, 0x11, 0x01);		// Reset to DSi Menu
+		my_i2cWriteRegister(0x4A, 0x70, 0x01);		// Bootflag = Warmboot/SkipHealthSafety
+		my_i2cWriteRegister(0x4A, 0x11, 0x01);		// Reset to DSi Menu
 	} else {
 		u8 readCommand = readPowerManagement(0x10);
 		readCommand |= BIT(0);
@@ -26,16 +28,30 @@ void ReturntoDSiMenu() {
 	}
 }
 
-void VcountHandler() { inputGetAndSend(); }
-
-void VblankHandler(void) {
-	if(fifoCheckValue32(FIFO_USER_03))ReturntoDSiMenu();
-}
 
 void powerButtonCB() { exitflag = true; }
 
 // extern bool __dsimode;
 // bool forceNTRMode = false;
+
+void runRebootCheck (void) {
+	if(!(REG_SCFG_EXT & BIT(14)) && !(REG_SCFG_EXT & BIT(15)) && (*((vu32*)0x02FFFE24) == (u32)0x02FFFE04)) {
+		irqDisable (IRQ_ALL);
+		*((vu32*)0x02FFFE34) = (u32)0x06020000;
+		swiSoftReset();
+	} else if (((REG_SCFG_EXT & BIT(14)) || (REG_SCFG_EXT & BIT(15))) && (*((vu32*)0x027FFE24) == (u32)0x027FFE04)) {
+		irqDisable (IRQ_ALL);
+		*((vu32*)0x027FFE34) = (u32)0x06020000;
+		swiSoftReset();
+	}
+}
+
+void VcountHandler() { inputGetAndSend(); }
+
+void VblankHandler(void) {
+	if(fifoCheckValue32(FIFO_USER_03))ReturntoDSiMenu();
+	runRebootCheck();
+}
 
 //---------------------------------------------------------------------------------
 int main() {
@@ -44,27 +60,20 @@ int main() {
 	if ((REG_SCFG_EXT & BIT(31))) {
 		// __dsimode = false;
 		// Enable SD/MMC access
-		REG_SCFG_EXT |= BIT(18);
+		if (!(REG_SCFG_EXT & BIT(18)))REG_SCFG_EXT |= BIT(18);
 		// Use NTR settings but keep SD/MMC bit enabled. (needs to be set in tandom with SCFG_EXT bit 18 else SD access will not work.
-		REG_SCFG_CLK |= BIT(0);
-		// REG_SCFG_CLK = 0x101;
+		if (!(REG_SCFG_EXT & BIT(0)))REG_SCFG_CLK |= BIT(0);
 		UnlockedSCFG = true;
-		// if (forceNTRMode)REG_SCFG_ROM = 0x703;
-		/*if (REG_SNDEXTCNT != 0) {
-			i2cWriteRegister(0x4A, 0x12, 0x00);	// Press power-button for auto-reset
-			i2cWriteRegister(0x4A, 0x70, 0x01);	// Bootflag = Warmboot/SkipHealthSafety
-		}*/
+	}
+	if (REG_SNDEXTCNT != 0) {
+		my_i2cWriteRegister(0x4A, 0x12, 0x00);	// Press power-button for auto-reset
+		my_i2cWriteRegister(0x4A, 0x70, 0x01);	// Bootflag = Warmboot/SkipHealthSafety
 	}
 	
 	if (UnlockedSCFG) {
 		*(vu32*)0x400481C = 0;	// Clear SD IRQ stat register
 		*(vu32*)0x4004820 = 0;	// Clear SD IRQ mask register
-		// clear sound registers
-		dmaFillWords(0, (void*)0x04000400, 0x100);
-		REG_SOUNDCNT |= SOUND_ENABLE;
-		writePowerManagement(PM_CONTROL_REG, ( readPowerManagement(PM_CONTROL_REG) & ~PM_SOUND_MUTE ) | PM_SOUND_AMP );
-		powerOn(POWER_SOUND);
-	}	
+	}
 	readUserSettings();
 	if (UnlockedSCFG)ledBlink(0);
 	irqInit();
@@ -84,11 +93,6 @@ int main() {
 		if (0 == (REG_KEYINPUT & (KEY_SELECT | KEY_START | KEY_L | KEY_R))) { exitflag = true; }
 		if (UnlockedSCFG) {
 			if(*(u16*)(0x4004700) != 0)fifoSendValue32(FIFO_USER_04, SD_IRQ_STATUS);
-			// Dump EEPROM save
-			if (*(u32*)(0x2FFFD0C) == 0x454D4D43) {
-				my_sdmmc_get_cid(true, (u32*)0x2FFD7BC);	// Get eMMC CID
-				*(u32*)(0x2FFFD0C) = 0;
-			}
 			resyncClock();
 			// Send SD status
 			if(*(u16*)(0x4004700) != 0) fifoSendValue32(FIFO_USER_04, SD_IRQ_STATUS);

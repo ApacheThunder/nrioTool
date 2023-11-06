@@ -32,7 +32,7 @@
 
 #include "tonccpy.h"
 
-#define BYTES_PER_READ 512
+/*#define BYTES_PER_READ 512
 
 #ifndef NULL
  #define NULL 0
@@ -184,7 +184,7 @@ bool _nrio_writeSectors(u32 sector, u32 numSectors, void* buffer) { return false
 
 bool _nrio_clearStatus (void) {	return true; }
 
-bool _nrio_shutdown (void) { return true; }
+bool _nrio_shutdown (void) { return true; }*/
 
 void readCardB7Mode(void* destination, u32 rom_offset, u32 num_words) {
 	ALIGN(4) u32 read_buffer[128];

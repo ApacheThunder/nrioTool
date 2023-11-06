@@ -1,0 +1,7 @@
+*.elf
+*.nds
+*.bin
+build
+data
+
+!dsx-banner.bin

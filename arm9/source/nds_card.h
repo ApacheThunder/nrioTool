@@ -25,7 +25,6 @@
 extern "C" {
 #endif
 
-
 void getHeader (u32* ndsHeader);
 
 
