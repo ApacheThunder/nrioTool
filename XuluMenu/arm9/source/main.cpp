@@ -31,6 +31,7 @@
 #include "args.h"
 #include "file_browse.h"
 #include "hbmenu_banner.h"
+#include "font.h"
 #include "consolebg.h"
 #include "iconTitle.h"
 #include "nds_loader_arm9.h"
@@ -51,12 +52,20 @@ int exitProgram(void) {
 
 void InitGUI (void) {
 	iconTitleInit();
-	// Subscreen as a console
 	videoSetModeSub(MODE_4_2D);
 	vramSetBankC(VRAM_C_SUB_BG);
 	int bgSub = bgInitSub(3, BgType_Bmp8, BgSize_B8_256x256, 1, 0);
-	consoleInit(NULL, 0, BgType_Text4bpp, BgSize_T_256x256, 4, 6, false, true);
+	PrintConsole *console = consoleInit(0, 0, BgType_Text4bpp, BgSize_T_256x256, 4, 6, false, false);
 	dmaCopy(consolebgBitmap, bgGetGfxPtr(bgSub), 256*256);
+	ConsoleFont font;
+	font.gfx = (u16*)fontTiles;
+	font.pal = (u16*)fontPal;
+	font.numChars = 95;
+	font.numColors = (fontPalLen / 2);
+	font.bpp = 4;
+	font.asciiOffset = 32;
+	font.convertSingleColor = true;
+	consoleSetFont(console, &font);
 	dmaCopy(consolebgPal, BG_PALETTE_SUB, 256*2);
 	BG_PALETTE_SUB[255] = RGB15(31,31,31);
 	keysSetRepeat(25,5);
@@ -89,16 +98,12 @@ int FileBrowser() {
 	}
 }
 
-//---------------------------------------------------------------------------------
 int main(void) {
-//---------------------------------------------------------------------------------
-	// overwrite reboot stub identifier
-	// so tapping power on DSi returns to DSi menu
 	extern u64 *fake_heap_end;
 	*fake_heap_end = 0;
 	if (!fatInitDefault()) {
 		InitGUI();
-		iprintf ("FAT init failed!\n");
+		iprintf ("\n\n\nFAT init failed!\n\n");
 		return exitProgram();
 	}
 	return FileBrowser();

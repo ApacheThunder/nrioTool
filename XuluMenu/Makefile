@@ -40,8 +40,7 @@ checkarm9:
 #---------------------------------------------------------------------------------
 $(TARGET).nds : $(NITRO_FILES) arm7/$(TARGET).elf arm9/$(TARGET).elf
 	@ndstool	-c $@ -7 arm7/$(TARGET).elf -9 arm9/$(TARGET).elf \
-	-h 0x200 -t nrio-banner.bin \
-	# $(_ADDFILES)
+	-h 0x200 -t nrio-banner.bin
 	@dlditool ../nrio.dldi $@
 
 data:

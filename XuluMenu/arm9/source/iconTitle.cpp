@@ -87,10 +87,7 @@ void iconTitleInit (void) {
 	videoSetMode(MODE_4_2D);
 
 	// initialize VRAM banks
-	vramSetPrimaryBanks(VRAM_A_MAIN_BG,
-	                    VRAM_B_MAIN_SPRITE,
-	                    VRAM_C_LCD,
-	                    VRAM_D_LCD);
+	vramSetPrimaryBanks(VRAM_A_MAIN_BG, VRAM_B_MAIN_SPRITE, VRAM_C_LCD, VRAM_D_LCD);
 
 	// initialize bg2 as a rotation background and bg3 as a bmp background
 	// http://mtheall.com/vram.html#T2=3&RNT2=96&MB2=3&TB2=0&S2=2&T3=6&MB3=1&S3=1
@@ -122,9 +119,7 @@ void iconTitleInit (void) {
 	oamInit(&oamMain, SpriteMapping_1D_128, false);
 	sprite = oamAllocateGfx(&oamMain, SpriteSize_32x32, SpriteColorFormat_16Color);
 	dmaFillHalfWords(0, sprite, sizeof(banner.icon));
-	oamSet(&oamMain, 0, ICON_POS_X, ICON_POS_Y, 0, 0,
-	       SpriteSize_32x32, SpriteColorFormat_16Color, sprite,
-	       -1, 0, 0, 0, 0, 0);
+	oamSet(&oamMain, 0, ICON_POS_X, ICON_POS_Y, 0, 0, SpriteSize_32x32, SpriteColorFormat_16Color, sprite, -1, 0, 0, 0, 0, 0);
 
 	// oam can only be updated during vblank
 	swiWaitForVBlank();
