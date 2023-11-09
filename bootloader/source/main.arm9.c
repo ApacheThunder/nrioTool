@@ -38,7 +38,7 @@
 #include <nds/ipc.h>
 
 #include "common.h"
-#include "miniconsole.h"
+#include "miniConsole.h"
 
 #define TMP_DATA 0x027FC000
 
