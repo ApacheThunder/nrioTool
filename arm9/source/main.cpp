@@ -33,6 +33,7 @@
 
 #define NUM_SECTORS 10000
 #define NUM_SECTORSALT 162
+
 #define SECTOR_SIZE 512
 
 #define UDISKROMOFFSET (u32)0x60000
@@ -44,9 +45,8 @@ tDSiHeader* cartHeader = (tDSiHeader*)DSI_HEADER;
 tNDSHeader* stage2Header = (tNDSHeader*)STAGE2_HEADER;
 tNDSHeader* uDiskHeader = (tNDSHeader*)UDISK_HEADER;
 
-// ALIGN(4) u8 CopyBuffer[SECTOR_SIZE*NUM_SECTORS];
 ALIGN(4) u8 ReadBuffer[SECTOR_SIZE];
-ALIGN(4) u32 CartReadBuffer[512];
+// ALIGN(4) u32 CartReadBuffer[512];
 
 static bool SCFGUnlocked = false;
 static bool ErrorState = false;
@@ -115,40 +115,40 @@ void DoError(const char* Message) {
 	}
 }
 
-void InitCartData(/*tNDSHeader* ndsHeader, u32 CHIPID, bool isReInit = false*/) {
-	/*if (!isReInit) {
-		// Set memory values expected by loaded NDS
-		// from NitroHax, thanks to Chism
-		*((u32*)0x02FFF800) = CHIPID;					// CurrentCardID
-		*((u32*)0x02FFF804) = CHIPID;					// Command10CardID
-		*((u16*)0x02FFF808) = ndsHeader->headerCRC16;	// Header Checksum, CRC-16 of [000h-15Dh]
-		*((u16*)0x02FFF80A) = ndsHeader->secureCRC16;	// Secure Area Checksum, CRC-16 of [ [20h]..7FFFh]
-		*((u16*)0x02FFF850) = 0x5835;
-		// Copies of above
-		*((u32*)0x02FFFC00) = CHIPID;					// CurrentCardID
-		*((u32*)0x02FFFC04) = CHIPID;					// Command10CardID
-		*((u16*)0x02FFFC08) = ndsHeader->headerCRC16;	// Header Checksum, CRC-16 of [000h-15Dh]
-		*((u16*)0x02FFFC0A) = ndsHeader->secureCRC16;	// Secure Area Checksum, CRC-16 of [ [20h]..7FFFh]
-		*((u16*)0x02FFFC10) = 0x5835;
-		*((u16*)0x02FFFC40) = 0x01;						// Boot Indicator
-	}*/
-	u8 Init[8] = { 0, 0, 0, 0, 0, 0, 0, 0x66 };
-	u8 Init2[8] = { 0, 0, 0, 0, 0, 0x21, 0x0D, 0xC1 };
-	u8 Init3[8] = { 0, 0, 0, 0, 0, 0xB0, 0x0F, 0xC1 };
-	u8 Init4[8] = { 0, 0, 0, 0, 0, 0x83, 0x10, 0xC1 };
-	// uint8_t InitHeader[8] = { 0, 0, 0, 0, 0, 0, 0, 0xB7 };
-	
-	cardPolledTransfer((u32)0xA7586000, (u32*)INITBUFFER, 128, Init);
-	DoWait(5);
-	cardPolledTransfer((u32)0xA7020000, (u32*)INITBUFFER, 128, Init2);
-	DoWait(5);
-	cardPolledTransfer((u32)0xA7020000, (u32*)INITBUFFER, 128, Init3);
-	DoWait(5);
-	cardPolledTransfer((u32)0xA7020000, (u32*)INITBUFFER, 128, Init4);
-	DoWait(5);
-	// if (!isReInit)readSectorB7Mode((u32*)NDS_HEADER, UDISKROMOFFSET);
-	// readSectorB7Mode((u32*)NDS_HEADER, 0);
-	// cardPolledTransfer((u32)0xB918027E, (u32*)NDS_HEADER, 0x200, InitHeader);
+void InitCartNandMode(int mode = 0) {
+	switch (mode) {
+		case (0) : {
+			u8 Init[8] = { 0, 0, 0, 0, 0, 0, 0, 0x66 };
+			u8 Init2[8] = { 0, 0, 0, 0, 0, 0x21, 0x0D, 0xC1 };
+			u8 Init3[8] = { 0, 0, 0, 0, 0, 0xB0, 0x0F, 0xC1 };
+			u8 Init4[8] = { 0, 0, 0, 0, 0, 0x83, 0x10, 0xC1 };
+			cardPolledTransfer((u32)0xA7586000, (u32*)INITBUFFER, 128, Init);
+			DoWait(8);
+			cardPolledTransfer((u32)0xA7020000, (u32*)(INITBUFFER + 0x10), 128, Init2);
+			DoWait(8);
+			cardPolledTransfer((u32)0xA7020000, (u32*)(INITBUFFER + 0x20), 128, Init3);
+			DoWait(8);
+			cardPolledTransfer((u32)0xA7020000, (u32*)(INITBUFFER + 0x30), 128, Init4);
+			DoWait(8);
+		} break;
+		case (1) : {
+			u8 InitB8[8] = { 0, 0, 0, 0, 0, 0, 0, 0xB8 };
+			u8 Init[8] = { 0, 0, 0, 0, 0, 0, 0x09, 0xC1 };
+			cardPolledTransfer((u32)0xA7586000, (u32*)(INITBUFFER + 0x40), 128, InitB8);
+			DoWait(8);
+			cardPolledTransfer((u32)0xAF000000, (u32*)(INITBUFFER + 0x50), 128, Init);
+			DoWait(8);
+			/*u8 InitB8[8] = { 0, 0, 0, 0, 0, 0, 0, 0xB8 };
+			u8 Init1[8] = { 0, 0, 0, 0, 0, 0xCF, 0x10, 0xC1 };
+			u8 Init2[8] = { 0, 0, 0, 0, 0, 0, 0, 0xD0 };
+			cardPolledTransfer((u32)0xA7586000, (u32*)INITBUFFER, 128, InitB8);
+			DoWait(8);
+			cardPolledTransfer((u32)0xAF000000, (u32*)INITBUFFER, 128, Init1);
+			DoWait(8);
+			cardPolledTransfer((u32)0xAF180000, (u32*)INITBUFFER, 128, Init2);
+			DoWait(8);*/
+		} break;
+	}
 }
 
 void CardInit(bool Silent = true, bool SkipSlotReset = false) {
@@ -170,7 +170,7 @@ void CardInit(bool Silent = true, bool SkipSlotReset = false) {
 	tonccpy(gameTitle, cartHeader->ndshdr.gameTitle, 12);
 	tonccpy(gameCode, cartHeader->ndshdr.gameCode, 6);
 	ndsHeader = loadHeader(cartHeader); // copy twlHeaderTemp to ndsHeader location
-	InitCartData(/*ndsHeader, cardGetId()*/);
+	InitCartNandMode(/*ndsHeader, cardGetId()*/);
 	DoWait();
 	if (!Silent) {
 		if (wasDSi && SCFGUnlocked) { iprintf("SCFG_MC Status:  %2x \n\n", REG_SCFG_MC); }
@@ -261,7 +261,7 @@ void DoImageRestore() {
 	fclose(src);
 	consoleClear();
 	printf("FAT image write finished!\n\n");
-	printf("Press A to return to main menu!\n");
+	printf("Press A to return to main menu!\n\n");
 	printf("Press B to exit!\n");
 	while(1) {
 		swiWaitForVBlank();
@@ -294,7 +294,7 @@ void DoSector0Dump(){
 	fclose(dest);
 	consoleClear();
 	printf("Sector 0 dump finished!\n\n");
-	printf("Press A to return to main menu!\n");
+	printf("Press A to return to main menu!\n\n");
 	printf("Press B to exit!\n");
 	while(1) {
 		swiWaitForVBlank();
@@ -367,20 +367,6 @@ void DoTestDump() {
 		MountFATDevices(wasDSi);
 		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
 	}
-	/*
-	
-	u8 InitB8[8] = { 0, 0, 0, 0, 0, 0, 0, 0xB8 };
-	u8 Init1[8] = { 0, 0, 0, 0, 0, 0xCF, 0x10, 0xC1 };
-	u8 Init2[8] = { 0, 0, 0, 0, 0, 0, 0, 0xD0 };
-	
-	cardPolledTransfer((u32)0xA7586000, (u32*)INITBUFFER, 128, InitB8);
-	DoWait(5);
-	cardPolledTransfer((u32)0xAF000000, (u32*)INITBUFFER, 128, Init1);
-	DoWait(5);
-	cardPolledTransfer((u32)0xAF180000, (u32*)INITBUFFER, 128, Init2);
-	DoWait(5);
-	
-	*/
 	FILE *dest;
 	if (sdMounted) { dest = fopen("sd:/nrioFiles/nrio_data.bin", "wb"); } else { dest = fopen("fat:/nrioFiles/nrio_data.bin", "wb"); }
 	ProgressTracker = NUM_SECTORS;
@@ -398,7 +384,7 @@ void DoTestDump() {
 	while(UpdateProgressText)swiWaitForVBlank();
 	consoleClear();
 	printf("Sector dump finished!\n\n");
-	printf("Press A to return to main menu!\n");
+	printf("Press A to return to main menu!\n\n");
 	printf("Press B to exit!\n");
 	while(1) {
 		swiWaitForVBlank();
@@ -431,14 +417,8 @@ void DoAltTestDump() {
 	if (sdMounted) { dest = fopen("sd:/nrioFiles/nrio_altdata.bin", "wb"); } else { dest = fopen("fat:/nrioFiles/nrio_altdata.bin", "wb"); }
 	if (!dest) { DoError("ERROR: Failed to create file!"); return; }
 	
-	u8 InitB8[8] = { 0, 0, 0, 0, 0, 0, 0, 0xB8 };
-	u8 Init[8] = { 0, 0, 0, 0, 0, 0, 0x09, 0xC1 };
-	
-	cardPolledTransfer((u32)0xA7586000, (u32*)INITBUFFER, 128, InitB8);
-	DoWait(8);
-	cardPolledTransfer((u32)0xAF000000, (u32*)INITBUFFER, 128, Init);
-	DoWait(8);
-	
+	InitCartNandMode(1);
+		
 	ProgressTracker = NUM_SECTORSALT;
 	textBuffer = "Dumping sectors to\nnrio_altdata.bin\n\nPlease Wait...\n\n\n";
 	textProgressBuffer = "Sectors Remaining: ";
@@ -455,14 +435,14 @@ void DoAltTestDump() {
 	while (UpdateProgressText)swiWaitForVBlank();
 	consoleClear();
 	printf("Sector dump finished!\n\n");
-	printf("Press A to return to main menu!\n");
+	printf("Press A to return to main menu!\n\n");
 	printf("Press B to exit!\n");
 	while(1) {
 		swiWaitForVBlank();
 		scanKeys();
 		if(keysDown() & KEY_A) {
 			CardInit(); // Card Init required to return to normal.
-			InitCartData();
+			InitCartNandMode();
 			return; 
 		} else if(keysDown() & KEY_B) { 
 			ErrorState = true;
@@ -611,7 +591,7 @@ int DLDIMenu() {
 	}
 	if (!nrioDLDIMounted) {
 		nrioDLDIMounted = fatInitDefault();
-		if (!nrioDLDIMounted) { DoFATerror(true, wasDSi); return 3; }
+		if (!nrioDLDIMounted) { DoError("DLDI Init Failed!\n"); return 4; }
 		if (!uDiskFileFound)uDiskFileFound = (access("sd:/nrioFiles/xBootStrap.nds", F_OK) == 0);
 	}
 	consoleClear();
@@ -674,6 +654,7 @@ int main() {
 	sysSetCardOwner(BUS_OWNER_ARM9);
 	if (!wasDSi)sysSetCartOwner(BUS_OWNER_ARM7);
 	MountFATDevices();
+	toncset((void*)0x02000000, 0, 0x800);
 	CardInit();
 	if ((!sdMounted && wasDSi) || (!fatMounted && !wasDSi)) {
 		DoFATerror(true, wasDSi);
@@ -684,12 +665,40 @@ int main() {
 	if (memcmp(cartHeader->ndshdr.gameCode, "DSGB", 4)) {
 		consoleClear();
 		printf("WARNING! The cart in slot 1\ndoesn't appear to be an N-Card\nor one of it's clones!\n\n");
-		printf("Press A to continue...\n");
+		printf("Press A to continue...\n\n");
 		printf("Press B to abort...\n");
 		while(1) {
 			swiWaitForVBlank();
 			scanKeys();
 			if(keysDown() & KEY_A)break;
+			if(keysDown() & KEY_B) {
+				consoleClear();
+				fifoSendValue32(FIFO_USER_03, 1);
+				return 0;
+			}
+		}
+	}
+	if (*(u32*)(INITBUFFER) != 0x2991AE1D) {
+		consoleClear();
+		InitCartNandMode(1);
+		FILE *initFile = fopen("sd:/nrioFiles/nrio_InitLog.bin", "wb");
+		if (initFile) {
+			fwrite((u32*)INITBUFFER, 0x200, 1, initFile); // Used Region
+			fclose(initFile);
+		}
+		toncset((void*)0x02000000, 0, 0x800);
+		printf("WARNING! Cart returned\nunexpected response from init\ncommand!\n\n");
+		printf("Press A to continue...\n\n");
+		printf("Press B to abort...\n");
+		while(1) {
+			swiWaitForVBlank();
+			scanKeys();
+			if(keysDown() & KEY_A) {
+				consoleClear();
+				CardInit();
+				DoWait();
+				break;
+			}
 			if(keysDown() & KEY_B) {
 				consoleClear();
 				fifoSendValue32(FIFO_USER_03, 1);

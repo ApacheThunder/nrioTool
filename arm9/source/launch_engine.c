@@ -34,36 +34,34 @@ typedef struct sLauncherSettings {
 void vramcpy (void* dst, const void* src, int len) {
 	u16* dst16 = (u16*)dst;
 	u16* src16 = (u16*)src;
-	
 	for ( ; len > 0; len -= 2) { *dst16++ = *src16++; }
 }	
 
 void runLaunchEngine (int language, u32 fileCluster) {
+
 	irqDisable(IRQ_ALL);
 	// Direct CPU access to VRAM bank D
 	VRAM_D_CR = VRAM_ENABLE | VRAM_D_LCD;
 	// Clear VRAM
-	memset (LCDC_BANK_D, 0x00, 128 * 1024);
+	memset (LCDC_BANK_D, 0, (128 * 1024));
 	// Load the loader/patcher into the correct address
 	vramcpy (LCDC_BANK_D, load_bin, load_bin_size);
 	// Give the VRAM to the ARM7
-	// nocashMessage("Give the VRAM to the ARM7");
 	VRAM_D_CR = VRAM_ENABLE | VRAM_D_ARM7_0x06020000;
 	// Reset into a passme loop
-	nocashMessage("Reset into a passme loop");
 	REG_EXMEMCNT |= ARM7_OWNS_ROM | ARM7_OWNS_CARD;
-	REG_SCFG_EXT=0x83002000;
+	REG_SCFG_EXT=0x83000000;
+	
 	tLauncherSettings* tmpData = (tLauncherSettings*)TMP_DATA;
 	tmpData->language = 0xFF;
 	if (language != -1)tmpData->language = language;
 	tmpData->fileCluster = fileCluster;
 	
-	REG_EXMEMCNT = 0xFFFF;
 	// Return to passme loop
 	*(vu32*)0x027FFFFC = 0;
 	*(vu32*)0x027FFE04 = (u32)0xE59FF018; // ldr pc, 0x02FFFE24
-	*(vu32*)0x027FFE24 = (u32)0x02FFFE04;  // Set ARM9 Loop address --> resetARM9(0x027FFE04);
-	// resetARM7(0x06020000);
+	*(vu32*)0x027FFE24 = (u32)0x02FFFE04; // Set ARM9 Loop address --> resetARM9(0x027FFE04);
+	resetARM7(0x06020000);
 	swiSoftReset();
 }
 

@@ -33,29 +33,7 @@ void __attribute__ ((long_call)) __attribute__((naked)) __attribute__((noreturn)
 		TIMER_DATA(i) = 0;
 	}
 
-	VRAM_CR = (VRAM_CR & 0xffff0000) | 0x00008080 ;
-	
-	vu16 *mainregs = (vu16*)0x04000000;
-	vu16 *subregs = (vu16*)0x04001000;
-	
-	for (i=0; i<43; i++) {
-		mainregs[i] = 0;
-		subregs[i] = 0;
-	}
-	
-	REG_DISPSTAT = 0;
-
-	VRAM_A_CR = 0;
-	VRAM_B_CR = 0;
-// Don't mess with the ARM7's VRAM
-//	VRAM_C_CR = 0;
-	VRAM_D_CR = 0;
-	VRAM_E_CR = 0;
-	VRAM_F_CR = 0;
-	VRAM_G_CR = 0;
-	VRAM_H_CR = 0;
-	VRAM_I_CR = 0;
-	REG_POWERCNT  = 0x820F;
+	// Removed VRAM/Screen clearing code to speed up transition. Things seem to boot fine without it.
 
 	//set shared ram to ARM7
 	WRAM_CR = 0x03;

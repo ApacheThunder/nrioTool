@@ -150,6 +150,8 @@ void arm9_main (void) {
 	ipcSendState(ARM9_MEMCLR);
 
 	arm9_clearCache();
+	
+	// Removed VRAM clearing/Display reset code. It is not needed for booting bootstrap and makes the transition quicker
 
 	for (i=0; i<16*1024; i+=4) {  //first 16KB
 		(*(vu32*)(i+0x00000000)) = 0x00000000;      //clear ITCM
@@ -167,16 +169,6 @@ void arm9_main (void) {
 	REG_IPC_FIFO_CR = IPC_FIFO_ENABLE | IPC_FIFO_SEND_CLEAR;
 	REG_IPC_FIFO_CR = 0;
 
-	// Blank out VRAM
-	VRAM_B_CR = 0x80;
-// Don't mess with the VRAM used for execution
-//	VRAM_D_CR = 0x80; 
-	VRAM_E_CR = 0x80;
-	VRAM_F_CR = 0x80;
-	VRAM_G_CR = 0x80;
-	VRAM_H_CR = 0x80;
-	VRAM_I_CR = 0x80;
-
 	// Clear out ARM9 DMA channels
 	for (i=0; i<4; i++) {
 		DMA_CR(i) = 0;
@@ -185,18 +177,6 @@ void arm9_main (void) {
 		TIMER_CR(i) = 0;
 		TIMER_DATA(i) = 0;
 	}
-	
-	VRAM_B_CR = 0;
-//	Don't mess with the VRAM used for execution
-//	VRAM_D_CR = 0;
-	VRAM_E_CR = 0;
-	VRAM_F_CR = 0;
-	VRAM_G_CR = 0;
-	VRAM_H_CR = 0;
-	VRAM_I_CR = 0;
-	
-	dmaFill((void*)&arm9_BLANK_RAM, VRAM_B,  128*1024);		// Banks A, B
-	dmaFill((void*)&arm9_BLANK_RAM, VRAM_E,  128*1024);		// Banks E, F, G, H, I
 	
 	// set ARM9 state to ready and wait for instructions from ARM7
 	ipcSendState(ARM9_READY);
@@ -226,26 +206,6 @@ void arm9_main (void) {
 			arm9_errorCode = ERR_NONE;
 		}
 	}
-	
-	
-	BG_PALETTE[0] = 0xFFFF;
-	BG_PALETTE_SUB[0] = 0xFFFF;
-	VRAM_A_CR = 0x80;
-	VRAM_C_CR = 0x80;
-	// BG_PALETTE_SUB[0] = 0xFFFF;
-	dmaFill((void*)&arm9_BLANK_RAM, BG_PALETTE+1, (2*1024)-2);
-	dmaFill((void*)&arm9_BLANK_RAM, OAM,     2*1024);
-
-	// Clear out display registers
-	vu16 *mainregs = (vu16*)0x04000000;
-	vu16 *subregs = (vu16*)0x04001000;
-	for (i=0; i<43; i++) { mainregs[i] = 0; subregs[i] = 0; }
-	REG_DISPSTAT = 0;
-	VRAM_A_CR = 0;
-	VRAM_C_CR = 0;
-	videoSetMode(0);
-	videoSetModeSub(0);
-	REG_POWERCNT = 0x820F;
 	
 	if (REG_SCFG_EXT & BIT(31))REG_SCFG_EXT = 0x03000000;
 

@@ -28,30 +28,11 @@ void ReturntoDSiMenu() {
 	}
 }
 
-
 void powerButtonCB() { exitflag = true; }
-
-// extern bool __dsimode;
-// bool forceNTRMode = false;
-
-void runRebootCheck (void) {
-	if(!(REG_SCFG_EXT & BIT(14)) && !(REG_SCFG_EXT & BIT(15)) && (*((vu32*)0x02FFFE24) == (u32)0x02FFFE04)) {
-		irqDisable (IRQ_ALL);
-		*((vu32*)0x02FFFE34) = (u32)0x06020000;
-		swiSoftReset();
-	} else if (((REG_SCFG_EXT & BIT(14)) || (REG_SCFG_EXT & BIT(15))) && (*((vu32*)0x027FFE24) == (u32)0x027FFE04)) {
-		irqDisable (IRQ_ALL);
-		*((vu32*)0x027FFE34) = (u32)0x06020000;
-		swiSoftReset();
-	}
-}
 
 void VcountHandler() { inputGetAndSend(); }
 
-void VblankHandler(void) {
-	if(fifoCheckValue32(FIFO_USER_03))ReturntoDSiMenu();
-	runRebootCheck();
-}
+void VblankHandler(void) { if(fifoCheckValue32(FIFO_USER_03))ReturntoDSiMenu(); }
 
 //---------------------------------------------------------------------------------
 int main() {
@@ -87,7 +68,6 @@ int main() {
 	irqSet(IRQ_VBLANK, VblankHandler);
 	irqEnable( IRQ_VBLANK | IRQ_VCOUNT );
 	setPowerButtonCB(powerButtonCB);
-	// if (forceNTRMode && (REG_SCFG_EXT & BIT(31)))REG_SCFG_EXT &= ~(1UL << 31);
 	// Keep the ARM7 mostly idle
 	while (!exitflag) {
 		if (0 == (REG_KEYINPUT & (KEY_SELECT | KEY_START | KEY_L | KEY_R))) { exitflag = true; }
