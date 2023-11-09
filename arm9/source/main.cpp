@@ -567,6 +567,7 @@ void vblankHandler (void) {
 }
 
 int DLDIMenu() {
+	int value = -1;
 	consoleClear();
 	if (!dldiWarned) {
 		printf("WARNING! Leaving DLDI menu will\nrequire restart\n");
@@ -577,11 +578,12 @@ int DLDIMenu() {
 			swiWaitForVBlank();
 			scanKeys();
 			if(keysDown() & KEY_A)break;
-			if(keysDown() & KEY_B) { MenuID = 0; return 0; }
+			if(keysDown() & KEY_B) { value = 5; break; }
 		}
-		dldiWarned = true;
 		consoleClear();
+		if (value == 5) { return value; } else { dldiWarned = true; }
 	}
+	swiWaitForVBlank();
 	if (!ntrMode) {
 		ntrMode = true;
 		// __dsimode = false;
@@ -602,21 +604,22 @@ int DLDIMenu() {
 	printf("\nPress [Y] to restore sector 0\n");
 	printf("\nPress [START] to write default\nFAT image\n");
 	printf("\n\n\n\n\n\n\n\nPress [B] to exit...\n");
-	while(1) {
+	while(value == -1) {
 		swiWaitForVBlank();
 		scanKeys();
 		switch (keysDown()){
-			case KEY_A: 	{ return 0; } break;
-			case KEY_X: 	{ return 1; } break;
-			case KEY_Y: 	{ return 2; } break;
-			case KEY_START:	{ return 3; } break;
-			case KEY_B:		{ return 4; } break;
+			case KEY_A: 	{ value = 0; } break;
+			case KEY_X: 	{ value = 1; } break;
+			case KEY_Y: 	{ value = 2; } break;
+			case KEY_START:	{ value = 3; } break;
+			case KEY_B:		{ ErrorState = true; value = 4; } break;
 		}
 	}
-	return 0;
+	return value;
 }
 
 int MainMenu() {
+	int value = -1;
 	consoleClear();
 	printf("Press [A] to dump Stage2 SRL\n");
 	printf("\nPress [Y] to dump UDISK SRL\n");
@@ -627,21 +630,21 @@ int MainMenu() {
 	printf("\n\n\n\n\n\nPress [B] to exit\n");
 	// printf("START to write new banner\n");
 	// printf("SELECT to write new Arm binaries\n\n\n");
-	while(1) {
+	while(value == -1) {
 		swiWaitForVBlank();
 		scanKeys();
 		switch (keysDown()){
-			case KEY_A: 	{ return 0; } break;
-			case KEY_Y: 	{ return 1; } break;
-			case KEY_X: { if (wasDSi)return 2; } break;
-			case KEY_UP: 	{ return 3; } break;
-			case KEY_DOWN: 	{ return 4; } break;
-			case KEY_B:		{ return 5; } break;
-			/*case KEY_X: 	{ return 5; } break;
-			case KEY_SELECT:{ return 7; } break;*/
+			case KEY_A: 	{ value = 0; } break;
+			case KEY_Y: 	{ value = 1; } break;
+			case KEY_X: { if (wasDSi)value = 2; } break;
+			case KEY_UP: 	{ value = 3; } break;
+			case KEY_DOWN: 	{ value = 4; } break;
+			case KEY_B:		{ value = 5; } break;
+			/*case KEY_X: 	{ value = 5; } break;
+			case KEY_SELECT:{ value = 7; } break;*/
 		}
 	}
-	return 0;
+	return value;
 }
 
 
@@ -731,7 +734,7 @@ int main() {
 					case 4: { DoAltTestDump(); } break;
 					case 5: { ErrorState = true; } break;
 				}
-			}break;
+			} break;
 			case 1: {
 				switch (DLDIMenu()) {
 					case 0: { DoCartBoot(); } break;
@@ -739,8 +742,9 @@ int main() {
 					case 2: { DoSector0Restore(); } break;
 					case 3: { DoImageRestore(); } break;
 					case 4: { ErrorState = true; } break;
+					case 5: { MenuID = 0; } break;
 				}
-			}break;
+			} break;
 		}
 		swiWaitForVBlank();
     }
