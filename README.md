@@ -1,3 +1,10 @@
+<p align="center">
+	<img src="https://github.com/ApacheThunder/nrioTool/raw/master/carts.jpg"><br>
+	<b>A tool for dumping hidden SRL rom sections from N-Card and it's clones.</b>
+	<br>
+</p>
+
+
 # nrioTool
 A tool for dumping hidden SRL rom sections from N-Card and it's clones. (F-Card, Fire Card, DS-Linker and Neoflash Mk5 are known clones of N-Card)
 Some recovery options are also available for DLDI section of the cart.
@@ -24,3 +31,4 @@ Some recovery options are also available for DLDI section of the cart.
 	4. Ability to boot into bootstrap program to launch files on cart. Allows booting udisk updator as a result so can recover a bricked cart!
 
 Credits for improvements to file read logic go to lifehackerhansol.
+Credit to SylverReZ for bug testing and photo compilation of known N-Card clones.
