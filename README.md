@@ -1,5 +1,5 @@
 <p align="center">
-	<img src="https://github.com/ApacheThunder/nrioTool/raw/master/carts.jpg"><br>
+	<img src="https://github.com/ApacheThunder/nrioTool/blob/main/carts.jpg?raw=true"><br>
 	<b>A tool for dumping hidden SRL rom sections from N-Card and it's clones.</b>
 	<br>
 </p>
