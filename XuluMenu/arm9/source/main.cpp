@@ -36,6 +36,8 @@
 #include "iconTitle.h"
 #include "nds_loader_arm9.h"
 
+static bool isAutoBoot = false;
+
 using namespace std;
 
 int exitProgram(void) {
@@ -99,12 +101,25 @@ int FileBrowser() {
 }
 
 int main(void) {
-	extern u64 *fake_heap_end;
-	*fake_heap_end = 0;
+	if (!isAutoBoot) { extern u64 *fake_heap_end; *fake_heap_end = 0; }
 	if (!fatInitDefault()) {
 		InitGUI();
 		iprintf ("\n\n\nFAT init failed!\n\n");
 		return exitProgram();
+	}
+	if (isAutoBoot) {
+		scanKeys();
+		if((access("/xmenu.srl", F_OK) == 0) && !(keysHeld() & KEY_B)) {
+			int err = runNdsFile("/xmenu.srl", 0, NULL);
+			InitGUI();
+			iprintf("Bootloader returned error %d\n", err);
+			return exitProgram();
+		} else if((access("/udisk.nds", F_OK) == 0) && (keysHeld() & KEY_Y)) {
+			int err = runNdsFile("/udisk.nds", 0, NULL);
+			InitGUI();
+			iprintf("Bootloader returned error %d\n", err);
+			return exitProgram();
+		}
 	}
 	return FileBrowser();
 }

@@ -554,8 +554,8 @@ void cardRead (u32 src, void* dest, bool nandSave) {
 }
 
 // src must be a 0x800 byte array
-void cardWriteNand (void* src, u32 dest) {
-	if (dest < cardNandRwStart || !nandChip)return;
+void cardWriteNand (void* src, u32 dest, bool override) {
+	if (!override && (dest < cardNandRwStart || !nandChip))return;
 
 	if (nandSection != (dest - cardNandRwStart) / (128 << 10)) {
 		// Need to switch back to ROM mode before switching to another RW section
@@ -580,4 +580,6 @@ void cardWriteNand (void* src, u32 dest) {
 
 	cardParamCommand(CARD_CMD_NAND_DISCARD_BUFFER, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
 }
+
+
 

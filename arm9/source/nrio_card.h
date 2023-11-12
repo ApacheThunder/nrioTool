@@ -23,16 +23,10 @@
 extern "C" {
 #endif
 
-bool _nrio_startUp (void);
-bool _nrio_isInserted (void);
-bool _nrio_readSectors (u32 sector, u32 numSecs, void* buffer);
-bool _nrio_readSectorsTest (u32 sector, u32 numSecs, void* buffer);
-bool _nrio_writeSectors (u32 sector, u32 numSectors, void* buffer);
-bool _nrio_clearStatus (void);
-bool _nrio_shutdown (void);
-
-void readCardB7Mode(void* destination, u32 rom_offset, u32 num_words);
-void readSectorB7Mode(void* destination, u32 rom_offset);
+void InitCartNandReadMode(void);
+void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words);
+void nrio_readSector(void* destination, u32 rom_offset);
+void nrio_writeSector(u32 rom_dest, void* source);
 
 #ifdef __cplusplus
 }

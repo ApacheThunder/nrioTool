@@ -45,7 +45,7 @@ void cardRead (u32 src, void* dest, bool nandSave);
 
 u32 cardGetId (void);
 
-void cardWriteNand (void* src, u32 dest);
+void cardWriteNand (void* src, u32 dest, bool override);
 
 #ifdef __cplusplus
 }
