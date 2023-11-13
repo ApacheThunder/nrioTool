@@ -26,7 +26,7 @@ extern "C" {
 void InitCartNandReadMode(void);
 void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words);
 void nrio_readSector(void* destination, u32 rom_offset);
-void nrio_writeSector(u32 rom_dest, void* source);
+// void nrio_writeSector(u32 rom_dest, void* source);
 
 #ifdef __cplusplus
 }

@@ -10,6 +10,7 @@
 #define INITBUFFER  0x02000000
 
 #define CARD_CMD_D2 0xD2
+#define CARDD2FLAGS (u32)0xB918027E
 
 static void DoWait(int waitTime) {
 	if (waitTime > 0)for (int i = 0; i < waitTime; i++) { swiWaitForVBlank(); }
@@ -25,17 +26,18 @@ void InitCartNandReadMode() {
 
 u32 CalcCARD_CR2_D2() {
 	u32 da,db,dc,ncr2;
-	da=0xB918027E; // 0x27FFE60 ?
-	db=0xB918027E;
+	da=CARDD2FLAGS; // 0x27FFE60 ?
+	db=CARDD2FLAGS;
 	da=da&0x00001FFF;
 	db=db&0x003F0000;
 	db=db>>16;
 	dc=da+db;
 	dc=(dc/2)-1;
-	ncr2=0xB918027E;
+	ncr2=CARDD2FLAGS;
 	ncr2&=~0x003F1FFF;
-	ncr2|=dc;	
-	return (u32)((ncr2)&(~0x07000000))|(3<<24);
+	ncr2|=dc;
+	ncr2 = (u32)((ncr2) & (~0x07000000)) | (3<<24);
+	return ncr2;
 }
 
 void cardreadpage(u32 addr, u32 dst, u8 cmd, u32 card_cr2) {
@@ -59,7 +61,7 @@ void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words) {
 	}
 }
 
-static void cardPolledTransferWrite(u32 flags, u32 *buffer, u32 length, const u8 *command) {
+/*static void cardPolledTransferWrite(u32 flags, u32 *buffer, u32 length, const u8 *command) {
 //---------------------------------------------------------------------------------
 	cardWriteCommand(command);
 	REG_ROMCTRL = flags | CARD_BUSY;
@@ -83,14 +85,13 @@ static void cardPolledTransferWrite(u32 flags, u32 *buffer, u32 length, const u8
 	} while (REG_ROMCTRL & CARD_BUSY);
 }
 
-
 #define CARD_CMD_NAND_WRITE_BUFFER   0x81
 #define CARD_CMD_NAND_COMMIT_BUFFER  0x82
 #define CARD_CMD_NAND_DISCARD_BUFFER 0x84
 #define CARD_CMD_NAND_WRITE_ENABLE   0x85
+#define CARD_CMD_NAND_READ_STATUS    0xD6
 // #define CARD_CMD_NAND_ROM_MODE       0x8B
 // #define CARD_CMD_NAND_RW_MODE        0xB2
-#define CARD_CMD_NAND_READ_STATUS    0xD6
 // #define CARD_CMD_NAND_UNKNOWN        0xBB
 // #define CARD_CMD_NAND_READ_ID        0x94
 
@@ -108,40 +109,16 @@ void nrio_writeSector(u32 rom_dest, void* source) {
 		// CARD_CMD_DATA_READ
 		CARD_CMD_NAND_WRITE_BUFFER
 	};
-	// cardParamCommand(CARD_CMD_NAND_WRITE_ENABLE, 0, CARD_ACTIVATE | CARD_nRESET, NULL, 0);
-	cardPolledTransferWrite(CARD_ACTIVATE | CARD_WR | CARD_nRESET | CARD_SEC_LARGE | CARD_CLK_SLOW | CARD_BLK_SIZE(1) |
-													  BIT(20) | BIT(19) | BIT(9) | BIT(6) | BIT(5) | BIT(4) | BIT(3) | BIT(2) | BIT(1), source, 128, cmdData);
-	// cardParamCommand(CARD_CMD_NAND_COMMIT_BUFFER, 0, CARD_ACTIVATE | CARD_nRESET, NULL, 0);
-	/*u32 status;
+	cardParamCommand(CARD_CMD_NAND_WRITE_ENABLE, 0, CARD_ACTIVATE | CARD_nRESET, NULL, 0);
+//	cardPolledTransferWrite(CARD_ACTIVATE | CARD_WR | CARD_nRESET | CARD_SEC_LARGE | CARD_CLK_SLOW | CARD_BLK_SIZE(1) |
+//													  BIT(20) | BIT(19) | BIT(9) | BIT(6) | BIT(5) | BIT(4) | BIT(3) | BIT(2) | BIT(1), source, 128, cmdData);
+	cardPolledTransferWrite(CalcCARD_CR2_D2_WRITE(), source, 128, cmdData);
+	
+	cardParamCommand(CARD_CMD_NAND_COMMIT_BUFFER, 0, CARD_ACTIVATE | CARD_nRESET, NULL, 0);
+	u32 status;
 	do {
 		cardParamCommand(CARD_CMD_NAND_READ_STATUS, 0, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7), &status, 1);
 	} while((status & BIT(5)) == 0);
-	cardParamCommand(CARD_CMD_NAND_DISCARD_BUFFER, 0, CARD_ACTIVATE | CARD_nRESET, NULL, 0);*/
-}
-
-/*void writeSectorTest (void* src, u32 dest) {
-
-	if (nandSection != (dest - cardNandRwStart) / (128 << 10)) {
-		// Need to switch back to ROM mode before switching to another RW section
-		if(nandSection != -1)cardParamCommand(CARD_CMD_NAND_ROM_MODE, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
-		cardParamCommand(CARD_CMD_NAND_RW_MODE, dest, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
-		nandSection = (dest - cardNandRwStart) / (128 << 10);
-	}
-
-	cardParamCommand(CARD_CMD_NAND_WRITE_ENABLE, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
-
-	const u8 cmdData[8] = {0, 0, 0, dest, dest >> 8, dest >> 16, dest >> 24, CARD_CMD_NAND_WRITE_BUFFER};
-	for (int i = 0; i < 4; i++) {
-		cardPolledTransferWrite(portFlags | CARD_ACTIVATE | CARD_WR | CARD_nRESET | CARD_BLK_SIZE(1), src + (i * 0x200), 0x200 / sizeof(u32), cmdData);
-	}
-
-	cardParamCommand(CARD_CMD_NAND_COMMIT_BUFFER, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
-
-	u32 status;
-	do {
-		cardParamCommand(CARD_CMD_NAND_READ_STATUS, 0, portFlags | CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7), &status, 1);
-	} while((status & BIT(5)) == 0);
-
-	cardParamCommand(CARD_CMD_NAND_DISCARD_BUFFER, 0, portFlags | CARD_ACTIVATE | CARD_nRESET, NULL, 0);
+	cardParamCommand(CARD_CMD_NAND_DISCARD_BUFFER, 0, CARD_ACTIVATE | CARD_nRESET, NULL, 0);
 }*/
 

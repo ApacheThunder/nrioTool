@@ -34,8 +34,10 @@
 #define CONSOLE_SCREEN_HEIGHT 24
 #define StatRefreshRate 41
 
-#define NUM_SECTORS 10000
-#define NUM_SECTORSALT 162
+// #define NUM_SECTORS 10000
+// #define NUM_SECTORS 4023552
+// #define NUM_SECTORS 3991808
+#define NUM_SECTORS 5056
 
 #define SECTOR_SIZE 512
 
@@ -45,8 +47,8 @@
 #define UDISKROMOFFSET (u32)0x00080000
 #define FALLBACKSIZE 20000
 
-// #define BANNERBUFFER  0x02500000
-/*#define UDISKUPDATEBUFFER  0x02700000
+/*#define BANNERBUFFER  0x02700000
+#define UDISKUPDATEBUFFER  0x02700000
 #define UDISKUPDATESIZE 1545
 #define UDISK_V145_SIZE 1170*/
 
@@ -329,6 +331,7 @@ void DoImageDump() {
 	struct statvfs st;
 	if (statvfs("fat:/", &st) == 0)CartCapacity = (st.f_bsize * st.f_blocks);
 	if (CartCapacity > getBytesFree("sd:") || CartCapacity == 0 || getBytesFree("sd:") == 0) {
+		consoleClear();
 		printf("ERROR: Insufficient free space!\n\n");
 		printf("Press [A] to abort.\n");
 		while(1) {
@@ -542,15 +545,17 @@ void DoTestDump() {
 	FILE *dest;
 	if (sdMounted) { dest = fopen("sd:/nrioFiles/nrio_data.bin", "wb"); } else { dest = fopen("fat:/nrioFiles/nrio_data.bin", "wb"); }
 	ProgressTracker = NUM_SECTORS;
-	textBuffer = "Dumping sectors to nrio_data.bin\n\nPlease Wait...\n\n\n";
+	textBuffer = "Dumping sectors to nrio_data.bin\n\nPress [B] to abort...\n\n\n";
 	textProgressBuffer = "Sectors Remaining: ";
-	for (int i = 0; i < NUM_SECTORS; i++){ 
-		// _nrio_readSectors(i, 1, ReadBuffer);
-		// _nrio_readSectorsTest(i, 1, ReadBuffer);
+	// int Sector0Location = 44800;
+	for (int i = 0; i < NUM_SECTORS; i++) {
+	// for (int i = Sector0Location; i < NUM_SECTORS + Sector0Location; i++) {	
 		nrio_readSector(ReadBuffer, (u32)(i * 0x200));
 		fwrite(ReadBuffer, 0x200, 1, dest); // Used Region
 		ProgressTracker--;
 		UpdateProgressText = true;
+		scanKeys();
+		if(keysDown() & KEY_B)break;
 	}
 	fclose(dest);
 	while(UpdateProgressText)swiWaitForVBlank();
@@ -769,9 +774,8 @@ void DoUdiskDump() {
 		if(keysDown() & KEY_A) return;
 		if(keysDown() & KEY_B) { ErrorState = true; return; }
 	}
-}*/
-
-
+}
+*/
 
 void vblankHandler (void) {
 	if (UpdateProgressText) {
@@ -824,7 +828,6 @@ int DLDIMenu() {
 	swiWaitForVBlank();
 	if (!ntrMode) {
 		ntrMode = true;
-		// __dsimode = false;
 		REG_SCFG_EXT &= ~(1UL << 14);
 		REG_SCFG_EXT &= ~(1UL << 15);
 		for (int i = 0; i < 30; i++) { while(REG_VCOUNT!=191); while(REG_VCOUNT==191); }
@@ -865,10 +868,11 @@ int MainMenu() {
 	printf("\nPress [Y] to dump UDISK SRL\n");
 	// printf("\nPress [L] go to utility menu\n");
 	if (wasDSi)printf("\nPress [X] go to recovery menu\n");
-	printf("\nPress [DPAD RIGHT] dump main SRL\n");
+	printf("\nPress [DPAD LEFT] dump main SRL\n");
+	printf("\nPress [DPAD RIGHT] to do test\ndump\n");
 	// printf("\nPress [DPAD DOWN] write banner\nto cart\n");
 	if (!wasDSi)printf("\n");
-	printf("\n\n\n\n\n\n\nPress [B] to exit\n");
+	printf("\n\n\n\n\n\nPress [B] to exit\n");
 	// printf("START to write new banner\n");
 	// printf("SELECT to write new Arm binaries\n\n\n");
 	while(value == -1) {
@@ -879,10 +883,11 @@ int MainMenu() {
 			case KEY_Y: 	{ value = 1; } break;
 			// case KEY_L: 	{ value = 2; } break;
 			case KEY_X: 	{ if (wasDSi)value = 3; } break;
-			case KEY_RIGHT: { value = 4; } break;
-			// case KEY_DOWN: 	{ value = 5; } break;
-			case KEY_B:		{ value = 6; } break;
-			// case KEY_SELECT:{ value = 7; } break;
+			case KEY_LEFT: 	{ value = 4; } break;
+			case KEY_RIGHT: { value = 5; } break;
+			// case KEY_DOWN: 	{ value = 6; } break;
+			case KEY_B:		{ value = 7; } break;
+			// case KEY_SELECT:{ value = 8; } break;
 		}
 	}
 	return value;
@@ -968,8 +973,9 @@ int main() {
 					// case 2: { MenuID = 1; } break;
 					case 3: { MenuID = 2; } break;
 					case 4: { DoStage1Dump(); } break;
-					// case 5: { DoBannerWrite(); } break;
-					case 6: { ErrorState = true; } break;
+					case 5: { DoTestDump(); } break;
+					// case 6: { DoBannerWrite(); } break;
+					case 7: { ErrorState = true; } break;
 				}
 			} break;
 			/*case 1: {
