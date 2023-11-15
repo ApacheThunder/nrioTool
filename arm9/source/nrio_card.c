@@ -48,6 +48,10 @@ void nrio_readSector(void* destination, u32 rom_offset) {
 	cardreadpage(rom_offset, (u32)destination, CARD_CMD_D2, CalcCARD_CR2_D2());
 }
 
+void nrio_readSectorB7(void* destination, u32 rom_offset) {
+	cardreadpage(rom_offset, (u32)destination, CARD_CMD_DATA_READ, CARDD2FLAGS);
+}
+
 void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words) {
 	ALIGN(4) u32 read_buffer[128];
 	u32 last_read_size = num_words % 128;

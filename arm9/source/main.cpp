@@ -544,6 +544,7 @@ void DoTestDump() {
 	}
 	FILE *dest;
 	if (sdMounted) { dest = fopen("sd:/nrioFiles/nrio_data.bin", "wb"); } else { dest = fopen("fat:/nrioFiles/nrio_data.bin", "wb"); }
+	InitCartNandFATReadMode();
 	ProgressTracker = NUM_SECTORS;
 	textBuffer = "Dumping sectors to nrio_data.bin\n\nPress [B] to abort...\n\n\n";
 	textProgressBuffer = "Sectors Remaining: ";

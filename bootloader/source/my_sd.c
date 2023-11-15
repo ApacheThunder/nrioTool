@@ -62,11 +62,11 @@ starting at "sector".
 The buffer may be unaligned, and the driver must deal with this correctly.
 return true if it was successful, false if it failed for any reason
 -----------------------------------------------------------------*/
-int my_sdio_ReadSectors_nonblocking(sec_t sector, sec_t numSectors, void* buffer) {
+bool my_sdio_ReadSectors_nonblocking(sec_t sector, sec_t numSectors, void* buffer) {
 	#ifdef DEBUG
 	nocashMessage("my_sdio_ReadSectors_nonblocking");
 	#endif
-	return my_sdmmc_sdcard_readsectors_nonblocking(sector, numSectors, buffer);
+	return (my_sdmmc_sdcard_readsectors_nonblocking(sector, numSectors, buffer) == 0x33C12);
 }
 
 bool  my_sdio_check_command(int cmd) {
