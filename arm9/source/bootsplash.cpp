@@ -3,8 +3,11 @@
 #include "bootsplash.h"
 #include "font.h"
 
-#include "topLogo.h"
-#include "botConsole.h"
+//#include "topLogo.h"
+//#include "botConsole.h"
+
+#include "xmasTopLogo.h"
+#include "xmasBotConsole.h"
 
 void BootSplashInit(bool isDSiMode = true) {
 	videoSetMode(MODE_4_2D);
@@ -13,8 +16,10 @@ void BootSplashInit(bool isDSiMode = true) {
 	vramSetBankC (VRAM_C_SUB_BG);
 	int bg = bgInit(3, BgType_Bmp8, BgSize_B8_256x256, 1, 0);
 	int bgSub = bgInitSub(3, BgType_Bmp8, BgSize_B8_256x256, 1, 0);
-	dmaCopy(topLogoBitmap, bgGetGfxPtr(bg), 256*256);
-	dmaCopy(topLogoPal, BG_PALETTE, 256*2);
+	//dmaCopy(topLogoBitmap, bgGetGfxPtr(bg), 256*256);
+	//dmaCopy(topLogoPal, BG_PALETTE, 256*2);
+	dmaCopy(xmasTopLogoBitmap, bgGetGfxPtr(bg), 256*256);
+	dmaCopy(xmasTopLogoPal, BG_PALETTE, 256*2);
 	
 	PrintConsole *console = consoleInit(0, 0, BgType_Text4bpp, BgSize_T_256x256, 4, 6, false, false);
 		
@@ -31,9 +36,11 @@ void BootSplashInit(bool isDSiMode = true) {
 	consoleSetWindow(console, 0, 6, 32, 24);
 	
 	// Load graphics after font or else you get palette conflicts. :P
-	
-	dmaCopy(botConsoleBitmap, bgGetGfxPtr(bgSub), 256*256);
-	dmaCopy(botConsolePal, BG_PALETTE_SUB, 256*2);
+
+	//dmaCopy(botConsoleBitmap, bgGetGfxPtr(bgSub), 256*256);
+	//dmaCopy(botConsolePal, BG_PALETTE_SUB, 256*2);
+	dmaCopy(xmasBotConsoleBitmap, bgGetGfxPtr(bgSub), 256*256);
+	dmaCopy(xmasBotConsolePal, BG_PALETTE_SUB, 256*2);
 	
 	BG_PALETTE_SUB[255] = RGB15(31,31,31);
 }
