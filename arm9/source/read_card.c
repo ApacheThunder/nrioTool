@@ -54,8 +54,7 @@ enum {
 #define CARD_CMD_NAND_UNKNOWN        0xBB
 #define CARD_CMD_NAND_READ_ID        0x94
 
-typedef union
-{
+typedef union {
 	char title[4];
 	u32 key;
 } GameCode;
@@ -80,6 +79,9 @@ static u32 getRandomNumber(void) {
 }
 
 extern bool sdMounted;
+
+// extern void nrioHeader();
+
 
 //---------------------------------------------------------------------------------
 // https://github.com/devkitPro/libnds/blob/105d4943dbac8f2bd99a47b22cd3ed48f96af083/source/common/card.c#L47-L62
@@ -357,6 +359,7 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 
 	iCardId=cardReadID(CARD_CLK_SLOW);
 	while(REG_ROMCTRL & CARD_BUSY);
+	// iCardId = 0x00000FC2;
 
 	normalChip = (iCardId & BIT(31)) != 0; // ROM chip ID MSB
 	nandChip = (iCardId & BIT(27)) != 0; // Card has a NAND chip
@@ -365,11 +368,12 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	cardParamCommand (CARD_CMD_HEADER_READ, 0,
 		CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
 		(void*)headerData, 0x200/sizeof(u32));
+	
+	// tonccpy((void*)headerData, (void*)nrioHeader, 0x200);
 
 	tonccpy(ndsHeader, headerData, 0x200);
 
-	if ((ndsHeader->unitCode != 0) || (ndsHeader->dsi_flags != 0))
-	{
+	if ((ndsHeader->unitCode != 0) || (ndsHeader->dsi_flags != 0)) {
 		// Extended header found
 		if(normalChip) {
 			for(int i = 0; i < 8; i++) {
@@ -394,14 +398,12 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	if (ndsHeader->headerCRC16 != swiCRC16(0xFFFF, (void*)ndsHeader, 0x15E)) {
 		return ERR_HEAD_CRC;
 	}
-
-	/*
+	
 	// Check logo CRC
-	if (ndsHeader->logoCRC16 != 0xCF56) {
+	/*if (ndsHeader->logoCRC16 != 0xCF56) {
 		return ERR_LOGO_CRC;
-	}
-	*/
-
+	}*/
+	
 	// Initialise blowfish encryption for KEY1 commands and decrypting the secure area
 	gameCode = (GameCode*)ndsHeader->gameCode;
 	init_keycode (gameCode->key, 2, 8, 0);
@@ -413,9 +415,7 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 		((ndsHeader->cardControlBF & (CARD_CLK_SLOW|CARD_DELAY1(0x1FFF))) + ((ndsHeader->cardControlBF & CARD_DELAY2(0x3F)) >> 16));
 
 	// Adjust card transfer method depending on the most significant bit of the chip ID
-	if (!normalChip) {
-		portFlagsKey1 |= CARD_SEC_LARGE;
-	}
+	if (!normalChip)portFlagsKey1 |= CARD_SEC_LARGE;
 
 	// 3Ciiijjj xkkkkkxx - Activate KEY1 Encryption Mode
 	initKey1Encryption (cmdData, 0);
@@ -481,8 +481,7 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	cardPolledTransfer(portFlagsKey1, NULL, 0, cmdData);
 
     //CycloDS doesn't like the dsi secure area being decrypted
-    if((ndsHeader->arm9romOffset != 0x4000) || secureArea[0] || secureArea[1])
-    {
+    if((ndsHeader->arm9romOffset != 0x4000) || secureArea[0] || secureArea[1]) {
 		decryptSecureArea (gameCode->key, secureArea, 0);
 	}
 
@@ -490,9 +489,9 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 		// Secure area exists, so just clear the tag
 		secureArea[0] = 0xe7ffdeff;
 		secureArea[1] = 0xe7ffdeff;
-	} else {
-		//return normalChip ? ERR_SEC_NORM : ERR_SEC_OTHR;
-	}
+	}/* else {
+		return normalChip ? ERR_SEC_NORM : ERR_SEC_OTHR;
+	}*/
 
 	// Set NAND card section location variables
 	if (nandChip) {
