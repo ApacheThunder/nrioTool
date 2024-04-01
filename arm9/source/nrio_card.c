@@ -60,7 +60,7 @@ void InitCartNandReadMode() {
 
 
 
-u32 CalcCARD_CR2_D2() {
+ITCM_CODE u32 CalcCARD_CR2_D2() {
 	u32 da,db,dc,ncr2;
 	da=CARDD2FLAGS; // Originally obtained from 0x27FFE60?
 	db=CARDD2FLAGS;
@@ -77,19 +77,19 @@ u32 CalcCARD_CR2_D2() {
 }
 
 
-void cardreadpage(u32 addr, u32 dst, u8 cmd, u32 card_cr2) {
+ITCM_CODE void cardreadpage(u32 addr, u32 dst, u8 cmd, u32 card_cr2) {
 	cardParamCommand (cmd, addr, card_cr2, (u32*)dst, 128);
 }
 
-void nrio_readSector(void* destination, u32 rom_offset) {
+ITCM_CODE void nrio_readSector(void* destination, u32 rom_offset) {
 	cardreadpage(rom_offset, (u32)destination, CARD_CMD_D2, CalcCARD_CR2_D2());
 }
 
-void nrio_readSectorB7(void* destination, u32 rom_offset) {
+ITCM_CODE void nrio_readSectorB7(void* destination, u32 rom_offset) {
 	cardreadpage(rom_offset, (u32)destination, CARD_CMD_DATA_READ, CARDB7FLAGS);
 }
 
-void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words) {
+ITCM_CODE void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words) {
 	ALIGN(4) u32 read_buffer[128];
 	u32 last_read_size = num_words % 128;
 	while(num_words > 0) {

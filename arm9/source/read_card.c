@@ -74,9 +74,7 @@ u32 cardNandRwStart = 0;
 
 static const u8 cardSeedBytes[] = {0xE8, 0x4D, 0x5A, 0xB1, 0x17, 0x8F, 0x99, 0xD5};
 
-static u32 getRandomNumber(void) {
-	return rand();
-}
+static u32 getRandomNumber(void) { return rand(); }
 
 extern bool sdMounted;
 
@@ -321,7 +319,7 @@ static void switchToTwlBlowfish(sNDSHeaderExt* ndsHeader) {
 }
 
 
-u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
+ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	u32 portFlagsKey1, portFlagsSecRead;
 	normalChip = false; // As defined by GBAtek, normal chip secure area and header are accessed in blocks of 0x200, other chip in blocks of 0x1000
 	nandChip = false;
@@ -509,9 +507,9 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	return ERR_NONE;
 }
 
-u32 cardGetId() { return iCardId; }
+ITCM_CODE u32 cardGetId() { return iCardId; }
 
-void cardRead (u32 src, void* dest, bool nandSave) {
+ITCM_CODE void cardRead (u32 src, void* dest, bool nandSave) {
 	sNDSHeaderExt* ndsHeader = (sNDSHeaderExt*)headerData;
 
 	if (src >= 0 && src < 0x1000) {
@@ -553,7 +551,7 @@ void cardRead (u32 src, void* dest, bool nandSave) {
 }
 
 // src must be a 0x800 byte array
-void cardWriteNand (void* src, u32 dest, bool override) {
+ITCM_CODE void cardWriteNand (void* src, u32 dest, bool override) {
 	if (!override && (dest < cardNandRwStart || !nandChip))return;
 
 	if (nandSection != (dest - cardNandRwStart) / (128 << 10)) {

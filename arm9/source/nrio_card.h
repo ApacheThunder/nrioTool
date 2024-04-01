@@ -7,9 +7,9 @@ extern "C" {
 
 void InitCartNandReadMode(void);
 void InitCartNandReadModeALT(void);
-void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words);
-void nrio_readSector(void* destination, u32 rom_offset);
-void nrio_readSectorB7(void* destination, u32 rom_offset);
+ITCM_CODE void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words);
+ITCM_CODE void nrio_readSector(void* destination, u32 rom_offset);
+ITCM_CODE void nrio_readSectorB7(void* destination, u32 rom_offset);
 // void nrio_writeSector(u32 rom_dest, void* source);
 void nrio_writeSectors(u32 dest, u32 src, u32 length);
 

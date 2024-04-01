@@ -35,7 +35,23 @@ void vramcpy (void* dst, const void* src, int len) {
 	u16* dst16 = (u16*)dst;
 	u16* src16 = (u16*)src;
 	for ( ; len > 0; len -= 2) { *dst16++ = *src16++; }
-}	
+}
+
+ITCM_CODE void setSCFG() {
+	if (REG_SCFG_EXT & BIT(31)) {
+		// MBK settings for NTR mode games
+		*((vu32*)REG_MBK1)=0x8D898581;
+		*((vu32*)REG_MBK2)=0x91898581;
+		*((vu32*)REG_MBK3)=0x91999591;
+		*((vu32*)REG_MBK4)=0x91898581;
+		*((vu32*)REG_MBK5)=0x91999591;
+		REG_MBK6 = 0x00003000;
+		REG_MBK7 = 0x00003000;
+		REG_MBK8 = 0x00003000;
+	}
+	REG_SCFG_EXT=0x03000000;
+	for (int i = 0; i < 8; i++) { while(REG_VCOUNT!=191); while(REG_VCOUNT==191); }
+}
 
 void runLaunchEngine (int language, u32 fileCluster) {
 
@@ -50,12 +66,13 @@ void runLaunchEngine (int language, u32 fileCluster) {
 	VRAM_D_CR = VRAM_ENABLE | VRAM_D_ARM7_0x06020000;
 	// Reset into a passme loop
 	REG_EXMEMCNT |= ARM7_OWNS_ROM | ARM7_OWNS_CARD;
-	REG_SCFG_EXT=0x83000000;
-	
+		
 	tLauncherSettings* tmpData = (tLauncherSettings*)TMP_DATA;
 	tmpData->language = 0xFF;
 	if (language != -1)tmpData->language = language;
 	tmpData->fileCluster = fileCluster;
+	
+	setSCFG();
 	
 	// Return to passme loop
 	*(vu32*)0x027FFFFC = 0;

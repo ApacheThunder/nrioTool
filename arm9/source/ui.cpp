@@ -6,6 +6,7 @@
 #include "font.h"
 
 #include "mainMenu.h"
+#include "mainMenuDebug.h"
 #include "dldiMenu.h"
 #include "dldiMenuDebug.h"
 #include "utilityMenu.h"
@@ -41,6 +42,12 @@ void PrintToTop(const char* Message, int data, bool clearScreen) {
 void LoadTopScreenSplash() {	
 	dmaCopy(mainMenuBitmap, bgGetGfxPtr(bg), 256*256);
 	dmaCopy(mainMenuPal, BG_PALETTE, 256*2);
+	BG_PALETTE[255] = RGB15(31,31,31);
+}
+
+void LoadTopScreenDebugSplash() {	
+	dmaCopy(mainMenuDebugBitmap, bgGetGfxPtr(bg), 256*256);
+	dmaCopy(mainMenuDebugPal, BG_PALETTE, 256*2);
 	BG_PALETTE[255] = RGB15(31,31,31);
 }
 

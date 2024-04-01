@@ -62,11 +62,12 @@ tDSiHeader* cartHeader = (tDSiHeader*)DSI_HEADER;
 tNDSHeader* stage2Header = (tNDSHeader*)STAGE2_HEADER;
 tNDSHeader* uDiskHeader = (tNDSHeader*)UDISK_HEADER;
 
-ALIGN(4) u8 ReadBuffer[SECTOR_SIZE];
-ALIGN(4) u8 FATBuffer[2048];
+DTCM_DATA ALIGN(4) u8 ReadBuffer[SECTOR_SIZE];
+DTCM_DATA ALIGN(4) u8 FATBuffer[2048];
 
 // ALIGN(4) u32 CartReadBuffer[512];
 
+static bool autoBootCart = false;
 static bool SCFGUnlocked = false;
 static bool ErrorState = false;
 static bool fatMounted = false;
@@ -79,6 +80,7 @@ static bool wasDSi = false;
 static bool ntrMode = false;
 static bool dldiWarned = false;
 static bool uDiskFileFound = false;
+static bool WarningPosted = false;
 
 bool dldiDebugMode = false;
 
@@ -831,6 +833,7 @@ int DLDIMenu() {
 		consoleClear();
 		if (value == 6) { return value; } else { dldiWarned = true; }
 	}
+	if (WarningPosted)consoleClearTop(false);
 	LoadTopScreenDLDISplash();
 	swiWaitForVBlank();
 	if (!ntrMode) {
@@ -921,17 +924,35 @@ void vblankHandler (void) {
 	}
 }
 
+
+ITCM_CODE void SetSCFG() {
+	if (REG_SCFG_EXT & BIT(31)) {
+		REG_SCFG_EXT &= ~(1UL << 14);
+		REG_SCFG_EXT &= ~(1UL << 15);
+		for (int i = 0; i < 10; i++) { while(REG_VCOUNT!=191); while(REG_VCOUNT==191); }
+	}
+}
+
 int main() {
+	scanKeys();
+	if(keysDown() & KEY_B)autoBootCart = true;
 	wasDSi = isDSiMode();
 	if (wasDSi && (REG_SCFG_EXT & BIT(31)))SCFGUnlocked = true;
 	defaultExceptionHandler();
 	BootSplashInit();
-	printf("\n\n\n\n\n\n Checking cart. Please Wait...");
+	
+	if (autoBootCart) {
+		printf("\n\n\n\n\n\n       Launching XuluMenu.\n          Please Wait...");
+	} else {
+		printf("\n\n\n\n\n\n Checking cart. Please Wait...");
+	}
+	
 	sysSetCardOwner(BUS_OWNER_ARM9);
 	if (!wasDSi)sysSetCartOwner(BUS_OWNER_ARM7);
 	MountFATDevices();
 	toncset((void*)0x02000000, 0, 0x800);
 	CardInit();
+	
 	if ((!sdMounted && wasDSi) || (!fatMounted && !wasDSi)) {
 		DoFATerror(true, wasDSi);
 		consoleClear();
@@ -939,48 +960,25 @@ int main() {
 		return 0;
 	}
 	if (memcmp(cartHeader->ndshdr.gameCode, "DSGB", 4)) {
+		if(!WarningPosted)LoadTopScreenDebugSplash();
+		WarningPosted = true;
 		consoleClear();
-		printf("WARNING! The cart in slot 1\ndoesn't appear to be an N-Card\nor one of it's clones!\n\n");
-		printf("Press [A] to continue...\n\n");
-		printf("Press [B] to abort...\n");
-		while(1) {
-			swiWaitForVBlank();
-			scanKeys();
-			if(keysDown() & KEY_A)break;
-			if(keysDown() & KEY_B) {
-				consoleClear();
-				fifoSendValue32(FIFO_USER_03, 1);
-				return 0;
-			}
-		}
+		PrintToTop("WARNING! The cart in slot 1\ndoesn't appear to be an\nN-Card or one of it's clones!\n\n", -1, false);
+		
 	}
 	if (*(u32*)(INITBUFFER) != 0x2991AE1D) {
+		if(!WarningPosted)LoadTopScreenDebugSplash();
 		consoleClear();
+		WarningPosted = true;
 		FILE *initFile = fopen("sd:/nrioFiles/nrio_InitLog.bin", "wb");
 		if (initFile) {
 			fwrite((u32*)INITBUFFER, 0x200, 1, initFile); // Used Region
 			fclose(initFile);
 		}
 		toncset((void*)0x02000000, 0, 0x800);
-		printf("WARNING! Cart returned\nunexpected response from init\ncommand!\n\n");
-		printf("Press [A] to continue...\n\n");
-		printf("Press [B] to abort...\n");
-		while(1) {
-			swiWaitForVBlank();
-			scanKeys();
-			if(keysDown() & KEY_A) {
-				consoleClear();
-				CardInit();
-				DoWait();
-				break;
-			}
-			if(keysDown() & KEY_B) {
-				consoleClear();
-				fifoSendValue32(FIFO_USER_03, 1);
-				return 0;
-			}
-		}
+		PrintToTop("WARNING! Cart returned\nunexpected response from init\ncommand!\n\n", -1, false);
 	}
+	if (autoBootCart) { SetSCFG(); DoCartBoot(); }
 	// Enable vblank handler
 	irqSet(IRQ_VBLANK, vblankHandler);
 	
@@ -1003,11 +1001,7 @@ int main() {
 					case 5: { DoTestDump(); } break;
 					case 6: { ErrorState = true; } break;
 					case 7: {
-						if (REG_SCFG_EXT & BIT(31)) {
-							REG_SCFG_EXT &= ~(1UL << 14);
-							REG_SCFG_EXT &= ~(1UL << 15);
-						}
-						for (int i = 0; i < 30; i++) { while(REG_VCOUNT!=191); while(REG_VCOUNT==191); }
+						SetSCFG();
 						DoCartBoot();
 					} break;
 				}
@@ -1018,7 +1012,7 @@ int main() {
 					// case 1: { DoBannerWrite(); } break;
 					case 2: { 
 						MenuID = 0; 
-						LoadTopScreenSplash();
+						if (!WarningPosted)LoadTopScreenSplash();
 					} break;
 				}
 			} break;

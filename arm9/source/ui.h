@@ -14,6 +14,7 @@ void PrintToTop(const char* Message, int data, bool clearScreen);
 void DoFATerror(bool isFatel, bool isSDError);
 
 void LoadTopScreenSplash(void);
+void LoadTopScreenDebugSplash(void);
 void LoadTopScreenDLDISplash(void);
 void LoadTopScreenUtilitySplash(void);
 void BootSplashInit(void);
