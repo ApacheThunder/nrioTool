@@ -54,8 +54,7 @@ enum {
 #define CARD_CMD_NAND_UNKNOWN        0xBB
 #define CARD_CMD_NAND_READ_ID        0x94
 
-typedef union
-{
+typedef union {
 	char title[4];
 	u32 key;
 } GameCode;
@@ -75,11 +74,12 @@ u32 cardNandRwStart = 0;
 
 static const u8 cardSeedBytes[] = {0xE8, 0x4D, 0x5A, 0xB1, 0x17, 0x8F, 0x99, 0xD5};
 
-static u32 getRandomNumber(void) {
-	return rand();
-}
+static u32 getRandomNumber(void) { return rand(); }
 
 extern bool sdMounted;
+
+// extern void nrioHeader();
+
 
 //---------------------------------------------------------------------------------
 // https://github.com/devkitPro/libnds/blob/105d4943dbac8f2bd99a47b22cd3ed48f96af083/source/common/card.c#L47-L62
@@ -319,7 +319,7 @@ static void switchToTwlBlowfish(sNDSHeaderExt* ndsHeader) {
 }
 
 
-u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
+ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	u32 portFlagsKey1, portFlagsSecRead;
 	normalChip = false; // As defined by GBAtek, normal chip secure area and header are accessed in blocks of 0x200, other chip in blocks of 0x1000
 	nandChip = false;
@@ -357,6 +357,7 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 
 	iCardId=cardReadID(CARD_CLK_SLOW);
 	while(REG_ROMCTRL & CARD_BUSY);
+	// iCardId = 0x00000FC2;
 
 	normalChip = (iCardId & BIT(31)) != 0; // ROM chip ID MSB
 	nandChip = (iCardId & BIT(27)) != 0; // Card has a NAND chip
@@ -365,11 +366,12 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	cardParamCommand (CARD_CMD_HEADER_READ, 0,
 		CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
 		(void*)headerData, 0x200/sizeof(u32));
+	
+	// tonccpy((void*)headerData, (void*)nrioHeader, 0x200);
 
 	tonccpy(ndsHeader, headerData, 0x200);
 
-	if ((ndsHeader->unitCode != 0) || (ndsHeader->dsi_flags != 0))
-	{
+	if ((ndsHeader->unitCode != 0) || (ndsHeader->dsi_flags != 0)) {
 		// Extended header found
 		if(normalChip) {
 			for(int i = 0; i < 8; i++) {
@@ -394,14 +396,12 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	if (ndsHeader->headerCRC16 != swiCRC16(0xFFFF, (void*)ndsHeader, 0x15E)) {
 		return ERR_HEAD_CRC;
 	}
-
-	/*
+	
 	// Check logo CRC
-	if (ndsHeader->logoCRC16 != 0xCF56) {
+	/*if (ndsHeader->logoCRC16 != 0xCF56) {
 		return ERR_LOGO_CRC;
-	}
-	*/
-
+	}*/
+	
 	// Initialise blowfish encryption for KEY1 commands and decrypting the secure area
 	gameCode = (GameCode*)ndsHeader->gameCode;
 	init_keycode (gameCode->key, 2, 8, 0);
@@ -413,9 +413,7 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 		((ndsHeader->cardControlBF & (CARD_CLK_SLOW|CARD_DELAY1(0x1FFF))) + ((ndsHeader->cardControlBF & CARD_DELAY2(0x3F)) >> 16));
 
 	// Adjust card transfer method depending on the most significant bit of the chip ID
-	if (!normalChip) {
-		portFlagsKey1 |= CARD_SEC_LARGE;
-	}
+	if (!normalChip)portFlagsKey1 |= CARD_SEC_LARGE;
 
 	// 3Ciiijjj xkkkkkxx - Activate KEY1 Encryption Mode
 	initKey1Encryption (cmdData, 0);
@@ -481,8 +479,7 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	cardPolledTransfer(portFlagsKey1, NULL, 0, cmdData);
 
     //CycloDS doesn't like the dsi secure area being decrypted
-    if((ndsHeader->arm9romOffset != 0x4000) || secureArea[0] || secureArea[1])
-    {
+    if((ndsHeader->arm9romOffset != 0x4000) || secureArea[0] || secureArea[1]) {
 		decryptSecureArea (gameCode->key, secureArea, 0);
 	}
 
@@ -490,9 +487,9 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 		// Secure area exists, so just clear the tag
 		secureArea[0] = 0xe7ffdeff;
 		secureArea[1] = 0xe7ffdeff;
-	} else {
-		//return normalChip ? ERR_SEC_NORM : ERR_SEC_OTHR;
-	}
+	}/* else {
+		return normalChip ? ERR_SEC_NORM : ERR_SEC_OTHR;
+	}*/
 
 	// Set NAND card section location variables
 	if (nandChip) {
@@ -510,9 +507,9 @@ u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	return ERR_NONE;
 }
 
-u32 cardGetId() { return iCardId; }
+ITCM_CODE u32 cardGetId() { return iCardId; }
 
-void cardRead (u32 src, void* dest, bool nandSave) {
+ITCM_CODE void cardRead (u32 src, void* dest, bool nandSave) {
 	sNDSHeaderExt* ndsHeader = (sNDSHeaderExt*)headerData;
 
 	if (src >= 0 && src < 0x1000) {
@@ -554,7 +551,7 @@ void cardRead (u32 src, void* dest, bool nandSave) {
 }
 
 // src must be a 0x800 byte array
-void cardWriteNand (void* src, u32 dest, bool override) {
+ITCM_CODE void cardWriteNand (void* src, u32 dest, bool override) {
 	if (!override && (dest < cardNandRwStart || !nandChip))return;
 
 	if (nandSection != (dest - cardNandRwStart) / (128 << 10)) {

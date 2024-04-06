@@ -39,7 +39,7 @@ extern "C" {
 extern u32 cardNandRomEnd;
 extern u32 cardNandRwStart;
 
-u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset);
+ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset);
 
 void cardRead (u32 src, void* dest, bool nandSave);
 

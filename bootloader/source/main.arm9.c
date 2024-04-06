@@ -119,19 +119,7 @@ Written by Darkain, modified by Chishm
 void arm9_main (void) {
 			
 	register int i;
-	
-	if (REG_SCFG_EXT & BIT(31)) {
-		// MBK settings for NTR mode games
-		*((vu32*)REG_MBK1)=0x8D898581;
-		*((vu32*)REG_MBK2)=0x91898581;
-		*((vu32*)REG_MBK3)=0x91999591;
-		*((vu32*)REG_MBK4)=0x91898581;
-		*((vu32*)REG_MBK5)=0x91999591;
-		REG_MBK6 = 0x00003000;
-		REG_MBK7 = 0x00003000;
-		REG_MBK8 = 0x00003000;
-	}
-	
+
 	//set shared ram to ARM7
 	WRAM_CR = 0x03;
 	REG_EXMEMCNT = 0xE880;
@@ -206,8 +194,6 @@ void arm9_main (void) {
 			arm9_errorCode = ERR_NONE;
 		}
 	}
-	
-	if (REG_SCFG_EXT & BIT(31))REG_SCFG_EXT = 0x03000000;
 
 	arm9_reset();
 }

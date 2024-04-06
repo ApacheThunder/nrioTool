@@ -12,7 +12,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "bootsplash.h"
+#include "ui.h"
 #include "nrio_card.h"
 #include "my_sd.h"
 #include "nitrofs.h"
@@ -34,10 +34,13 @@
 #define CONSOLE_SCREEN_HEIGHT 24
 #define StatRefreshRate 41
 
-// #define NUM_SECTORS 10000
 // #define NUM_SECTORS 4023552
 // #define NUM_SECTORS 3991808
-#define NUM_SECTORS 5056
+// #define NUM_SECTORS 32769
+// #define NUM_SECTORS 16896
+// #define NUM_SECTORS 10000
+// #define NUM_SECTORS 5056
+#define NUM_SECTORS 3300
 
 #define SECTOR_SIZE 512
 
@@ -47,10 +50,10 @@
 #define UDISKROMOFFSET (u32)0x00080000
 #define FALLBACKSIZE 20000
 
-/*#define BANNERBUFFER  0x02700000
-#define UDISKUPDATEBUFFER  0x02700000
-#define UDISKUPDATESIZE 1545
-#define UDISK_V145_SIZE 1170*/
+#define UPDATEBUFFER  0x02700000
+// #define MAXUPDATERESULTSIZE 1545
+#define MAXUPDATERESULTSIZE 4096
+// #define UPDATE_SIZE 1170
 
 
 tNDSHeader* ndsHeader = (tNDSHeader*)NDS_HEADER;
@@ -59,11 +62,12 @@ tDSiHeader* cartHeader = (tDSiHeader*)DSI_HEADER;
 tNDSHeader* stage2Header = (tNDSHeader*)STAGE2_HEADER;
 tNDSHeader* uDiskHeader = (tNDSHeader*)UDISK_HEADER;
 
-ALIGN(4) u8 ReadBuffer[SECTOR_SIZE];
-ALIGN(4) u8 FATBuffer[2048];
+DTCM_DATA ALIGN(4) u8 ReadBuffer[SECTOR_SIZE];
+DTCM_DATA ALIGN(4) u8 FATBuffer[2048];
 
 // ALIGN(4) u32 CartReadBuffer[512];
 
+static bool autoBootCart = false;
 static bool SCFGUnlocked = false;
 static bool ErrorState = false;
 static bool fatMounted = false;
@@ -76,13 +80,21 @@ static bool wasDSi = false;
 static bool ntrMode = false;
 static bool dldiWarned = false;
 static bool uDiskFileFound = false;
+static bool WarningPosted = false;
+
+bool dldiDebugMode = false;
 
 char gameTitle[13] = {0};
 
-static const char* textBuffer = "X------------------------------X\nX------------------------------X";
-static const char* textProgressBuffer = "X------------------------------X\nX------------------------------X";
-static int ProgressTracker = 0;
-static bool UpdateProgressText = false;
+const char* textBufferTop = "X------------------------------X\nX------------------------------X";
+const char* textProgressTopBuffer = "X------------------------------X\nX------------------------------X";
+const char* textBuffer = "X------------------------------X\nX------------------------------X";
+const char* textProgressBuffer = "X------------------------------X\nX------------------------------X";
+int ProgressTracker = 0;
+bool UpdateProgressText = false;
+bool UpdateDebugText = false;
+
+extern bool TopSelected;
 
 u64 getBytesFree(const char* drivePath) {
     struct statvfs st;
@@ -181,10 +193,10 @@ void MountFATDevices(bool mountSD = true) {
 	
 }
 
-/*void DoUdiskConvert() {
+void DoUpdateConvert() {
 	consoleClear();
 	DoWait(60);
-	printf("About to convert uDisk...\n\n");
+	printf("About to convert update file...\n\n");
 	printf("Press A to continue.\n");
 	printf("Press B to abort.\n");
 	while(1) {
@@ -199,58 +211,54 @@ void MountFATDevices(bool mountSD = true) {
 	}
 	
 	FILE *src;
-	if (sdMounted) { src = fopen("sd:/nrioFiles/udisk_eng.nds", "rb"); } else { src = fopen("fat:/nrioFiles/udisk_eng.nds", "rb"); }
 	
-	if (!src) { DoError("ERROR: Failed to find/open\nudisk update file(s)!", false); return; }
+	if (sdMounted) { src = fopen("sd:/nrioFiles/update.bin", "rb"); } else { src = fopen("fat:/nrioFiles/update.bin", "rb"); }
+	
+	if (!src) { DoError("ERROR: Failed to find/open\n update file!", false); return; }
 	
 	fseek(src, 0, SEEK_END);
 	int fileSize = (int)(ftell(src) / 0x200);
 	fseek(src, 0, SEEK_SET);
 	
-	if (fileSize != UDISKUPDATESIZE) { fclose(src); DoError("ERROR: Unexpected file size for\nsource file!", false); return; }
+	int UpdateResultSize = (((fileSize * 512) + (fileSize * 3)) / 512) + 1;
 	
+	if (UpdateResultSize > MAXUPDATERESULTSIZE) { DoError("ERROR: Update result will exceed\nmemory limits!", false); return; }
+	
+	// if (fileSize != UPDATE_SIZE) { fclose(src); DoError("ERROR: Unexpected file size for\n target file!", false); return; }
+
 	consoleClear();
-	printf("Reading uDisk_eng.nds to ram...\n");
-	fread((void*)UDISKUPDATEBUFFER, 1, (u32)(fileSize * 512), src);
-	fclose(src);
-	
-	FILE *src2;
-	
-	if (sdMounted) { src2 = fopen("sd:/nrioFiles/udisk.nds", "rb"); } else { src2 = fopen("fat:/nrioFiles/udisk.nds", "rb"); }
-	
-	fseek(src2, 0, SEEK_END);
-	int fileSize2 = (int)(ftell(src2) / 0x200);
-	fseek(src2, 0, SEEK_SET);
-	if (fileSize2 != UDISK_V145_SIZE) { fclose(src2); DoError("ERROR: Unexpected file size for\n target file!", false); return; }
-	
-	consoleClear();
-	ProgressTracker = UDISK_V145_SIZE;
-	textBuffer = "Reading and converting\nudisk.nds to ram...\n\n\n";
+	ProgressTracker = (fileSize + 1);
+	textBuffer = "Reading and converting\nupdate.bin...\n\n\n";
 	textProgressBuffer = "Blocks Remaining: ";
-	u32 MarkerOffset = 0;	
-	for (int i = 0; i < UDISK_V145_SIZE; i++) {
-		fseek(src2, (u32)(i * 512), SEEK_SET);
-		u32 ReadOffset = ((u32)UDISKUPDATEBUFFER + ((u32)(i * 512) + MarkerOffset));
-		fread((void*)ReadOffset, 1, 0x200, src2);
+	u32 MarkerOffset = 0;
+	
+	for (int i = 0; i < (fileSize + 1); i++) {
+		fseek(src, (u32)(i * 512), SEEK_SET);
+		u32 ReadOffset = ((u32)UPDATEBUFFER + ((u32)(i * 512) + MarkerOffset));
+		fread((void*)ReadOffset, 1, 0x200, src);
+		/* *(vu8*)((u32)(ReadOffset + 0x200)) = 0x3C;
+		*(vu8*)((u32)(ReadOffset + 0x201)) = 0xC0;
+		*(vu8*)((u32)(ReadOffset + 0x202)) = 0x3C;*/
+		*(vu8*)((u32)(ReadOffset + 0x200)) = 0x4D;
+		*(vu8*)((u32)(ReadOffset + 0x201)) = 0x4B;
+		*(vu8*)((u32)(ReadOffset + 0x202)) = 0x52;
 		MarkerOffset += 0x03;
 		ProgressTracker--;
 		UpdateProgressText = true;
 	}
-	fclose(src2);
+	fclose(src);
 	while(UpdateProgressText)swiWaitForVBlank();
-	
 	FILE *dest;
-	
-	if (sdMounted) { dest = fopen("sd:/nrioFiles/udisk_eng_new.nds", "wb"); } else { dest = fopen("fat:/nrioFiles/udisk_eng_new.nds", "wb"); }
-	if (!dest) { DoError("ERROR: Failed to create\nudisk_eng_new.nds!", false); return; }
+	if (sdMounted) { dest = fopen("sd:/nrioFiles/update_converted.bin", "wb"); } else { dest = fopen("fat:/nrioFiles/update_converted.bin", "wb"); }
+	if (!dest) { DoError("ERROR: Failed to create\nupdate_converted.bin!", false); return; }
 	consoleClear();
-	printf("Writing final result to file...\n");
-	fwrite((void*)UDISKUPDATEBUFFER, (u32)(UDISKUPDATESIZE * 512), 1, dest);
+	printf("Writing final result to\nupdate_converted.bin...\n");
+	fwrite((void*)UPDATEBUFFER, (u32)(UpdateResultSize * 512), 1, dest);
 	fclose(dest);
 	while (UpdateProgressText)swiWaitForVBlank();
 	consoleClear();
 	iprintf("Conversion finished!\n\n");
-	iprintf("Press A to return to utility menu\n");
+	iprintf("Press A to return to menu\n");
 	iprintf("Press B to exit!\n");
 	while(1) {
 		swiWaitForVBlank();
@@ -261,7 +269,7 @@ void MountFATDevices(bool mountSD = true) {
 			return;
 		}
 	}
-}*/
+}
 
 
 void DoCartBoot() {
@@ -347,6 +355,7 @@ void DoImageDump() {
 	textBuffer = "Dumping sectors to\nnrio_fatimage_dump.bin\n\nPress [B] to abort...\n\n\n";
 	textProgressBuffer = "Blocks Remaining: ";
 	bool readEndedEarly = false;
+	UpdateDebugText = dldiDebugMode;
 	for (int i = 0; i < ReadSize; i++) {
 		if (io_dldi_data->ioInterface.readSectors((i * 4), 4, FATBuffer)) {
 			fwrite(FATBuffer, 0x800, 1, dest); // Used Region
@@ -362,6 +371,7 @@ void DoImageDump() {
 	}
 	fclose(dest);
 	while (UpdateProgressText)swiWaitForVBlank();
+	if(UpdateDebugText)UpdateDebugText = false;
 	consoleClear();
 	if (!readEndedEarly) {
 		printf("Image dump finished!\n\n");
@@ -374,8 +384,8 @@ void DoImageDump() {
 		swiWaitForVBlank();
 		scanKeys();
 		if(keysDown() & KEY_A) {
-			CardInit(); // Card Init required to return to normal.
-			InitCartNandReadMode();
+			// CardInit();
+			// InitCartNandReadMode();
 			return; 
 		} else if(keysDown() & KEY_B) { 
 			ErrorState = true;
@@ -544,13 +554,12 @@ void DoTestDump() {
 	}
 	FILE *dest;
 	if (sdMounted) { dest = fopen("sd:/nrioFiles/nrio_data.bin", "wb"); } else { dest = fopen("fat:/nrioFiles/nrio_data.bin", "wb"); }
-	InitCartNandReadMode();
 	ProgressTracker = NUM_SECTORS;
 	textBuffer = "Dumping sectors to nrio_data.bin\n\nPress [B] to abort...\n\n\n";
 	textProgressBuffer = "Sectors Remaining: ";
 	// int Sector0Location = 44800;
+	// for (int i = Sector0Location; i < NUM_SECTORS + Sector0Location; i++) {
 	for (int i = 0; i < NUM_SECTORS; i++) {
-	// for (int i = Sector0Location; i < NUM_SECTORS + Sector0Location; i++) {	
 		nrio_readSector(ReadBuffer, (u32)(i * 0x200));
 		fwrite(ReadBuffer, 0x200, 1, dest); // Used Region
 		ProgressTracker--;
@@ -711,8 +720,8 @@ void DoUdiskDump() {
 	fclose(dest);
 	consoleClear();
 	iprintf("Dump finished!\n\n");
-	iprintf("Press [A] to return to main menu!\n\n");
-	iprintf("Press [B] to exit!\n");
+	iprintf("Press [A] to return to main menu\n\n");
+	iprintf("Press [B] to exit\n");
 	while(1) {
 		swiWaitForVBlank();
 		scanKeys();
@@ -740,29 +749,32 @@ void DoUdiskDump() {
 	toncset((void*)0x02000000, 0, 0x800);
 	consoleClear();
 	printf("Reading banner please wait...\n\n");
-	CardInit();
+	// CardInit();
 	if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) {
 		MountFATDevices(wasDSi);
 		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
 	}
-	nrio_readSector((void*)STAGE2_HEADER, 0);
+	// nrio_readSector((void*)STAGE2_HEADER, 0);
 	DoWait(2);
 	consoleClear();
 	FILE *bannerFile;
 	if (sdMounted) { bannerFile = fopen("sd:/nrioFiles/banner.bin", "rb"); } else { bannerFile = fopen("fat:/nrioFiles/banner.bin", "rb"); }
 	if (!bannerFile) { DoError("ERROR: Failed to read banner\nfile!\n\n"); return; }
-	fread((void*)BANNERBUFFER, 1, 0xA00, bannerFile);
-	int Sectors = 5;
-	ProgressTracker = Sectors;
-	textBuffer = "Writing banner.bin to cart...\nPlease Wait...\n\n\n";
-	textProgressBuffer = "Sectors Remaining: ";
-	UpdateProgressText = true;
-	for (int i = 0; i < Sectors; i++){
-		nrio_writeSector((stage2Header->bannerOffset + (u32)(i * 0x200)), (void*)((u32)BANNERBUFFER + (u32)(i * 0x200)));
-		ProgressTracker--;
-		UpdateProgressText = true;
-	}
-	UpdateProgressText = true;
+	fread((void*)UPDATEBUFFER, 1, 0xA00, bannerFile);
+	printf("Writing banner.bin to cart...\nPlease Wait...\n\n\n");
+	// int Sectors = 5;
+	// ProgressTracker = Sectors;
+	// textBuffer = "Writing banner.bin to cart...\nPlease Wait...\n\n\n";
+	// textProgressBuffer = "Sectors Remaining: ";
+	// UpdateProgressText = true;
+	// for (int i = 0; i < Sectors; i++){
+		// nrio_writeSector((stage2Header->bannerOffset + (u32)(i * 0x200)), (void*)((u32)UPDATEBUFFER + (u32)(i * 0x200)));
+	nrio_writeSectors(0x2000, UPDATEBUFFER, 0x800);
+	nrio_writeSectors(0x2800, UPDATEBUFFER, 0x800);
+		// ProgressTracker--;
+		// UpdateProgressText = true;
+	// }
+	// UpdateProgressText = true;
 	fclose(bannerFile);
 	CardInit();
 	consoleClear();
@@ -775,23 +787,17 @@ void DoUdiskDump() {
 		if(keysDown() & KEY_A) return;
 		if(keysDown() & KEY_B) { ErrorState = true; return; }
 	}
-}
-*/
+}*/
 
-void vblankHandler (void) {
-	if (UpdateProgressText) {
-		consoleClear();
-		printf(textBuffer);
-		printf(textProgressBuffer);
-		iprintf("%d \n", ProgressTracker);
-		UpdateProgressText = false;
-	}
-}
-
-/*int UtilityMenu() {
+int UtilityMenu() {
+	LoadTopScreenUtilitySplash();
 	int value = -1;
 	consoleClear();
-	printf("Press [A] to build update uDisk\n");
+	printf("Press [A] to build update file\n");
+	// printf("Press [X] write banner to cart\n");
+	printf("\n");
+	printf("\n");
+	printf("\n");
 	printf("\n");
 	printf("\n");
 	printf("\n");
@@ -802,11 +808,12 @@ void vblankHandler (void) {
 		scanKeys();
 		switch (keysDown()){
 			case KEY_A: 	{ value = 0; } break;
-			case KEY_B:		{ value = 1; } break;
+			// case KEY_X:		{ value = 1; } break;
+			case KEY_B:		{ value = 2; } break;
 		}
 	}
 	return value;
-}*/
+}
 
 
 int DLDIMenu() {
@@ -826,6 +833,8 @@ int DLDIMenu() {
 		consoleClear();
 		if (value == 6) { return value; } else { dldiWarned = true; }
 	}
+	if (WarningPosted)consoleClearTop(false);
+	LoadTopScreenDLDISplash();
 	swiWaitForVBlank();
 	if (!ntrMode) {
 		ntrMode = true;
@@ -867,13 +876,13 @@ int MainMenu() {
 	consoleClear();
 	printf("Press [A] to dump Stage2 SRL\n");
 	printf("\nPress [Y] to dump UDISK SRL\n");
-	// printf("\nPress [L] go to utility menu\n");
-	if (wasDSi)printf("\nPress [X] go to recovery menu\n");
+	if (wasDSi)printf("\nPress [X] go to DLDI menu\n");
 	printf("\nPress [DPAD LEFT] dump main SRL\n");
 	printf("\nPress [DPAD RIGHT] to do test\ndump\n");
-	// printf("\nPress [DPAD DOWN] write banner\nto cart\n");
+	printf("\nPress [L] go to utility menu\n");
+	
 	if (!wasDSi)printf("\n");
-	printf("\n\n\n\n\n\nPress [B] to exit\n");
+	printf("\n\n\n\nPress [B] to exit\n");
 	// printf("START to write new banner\n");
 	// printf("SELECT to write new Arm binaries\n\n\n");
 	while(value == -1) {
@@ -882,30 +891,68 @@ int MainMenu() {
 		switch (keysDown()) {
 			case KEY_A: 	{ value = 0; } break;
 			case KEY_Y: 	{ value = 1; } break;
-			// case KEY_L: 	{ value = 2; } break;
+			case KEY_L: 	{ value = 2; } break;
 			case KEY_X: 	{ if (wasDSi)value = 3; } break;
 			case KEY_LEFT: 	{ value = 4; } break;
 			case KEY_RIGHT: { value = 5; } break;
-			// case KEY_DOWN: 	{ value = 6; } break;
-			case KEY_B:		{ value = 7; } break;
-			// case KEY_SELECT:{ value = 8; } break;
+			case KEY_B:		{ value = 6; } break;
+			case KEY_START: { value = 7; } break;
 		}
 	}
 	return value;
 }
 
 
+void vblankHandler (void) {
+	if (UpdateProgressText) {
+		if (TopSelected) {
+			SelectBotConsole();
+			TopSelected = false;
+		}
+		consoleClear();
+		printf(textBuffer);
+		printf(textProgressBuffer);
+		iprintf("%d \n", ProgressTracker);
+		UpdateProgressText = false;
+	}
+	if (UpdateDebugText) {
+		PrintToTop("%02x ", *(u8*)0x40001A1, false);
+		PrintToTop("%08x", *(u32*)0x40001A8, false);
+		PrintToTop("%08x ", *(u32*)0x40001AC, false);
+		PrintToTop("%08x\n", *(u32*)0x40001A4, false);
+		// UpdateDebugText = false;
+	}
+}
+
+
+ITCM_CODE void SetSCFG() {
+	if (REG_SCFG_EXT & BIT(31)) {
+		REG_SCFG_EXT &= ~(1UL << 14);
+		REG_SCFG_EXT &= ~(1UL << 15);
+		for (int i = 0; i < 10; i++) { while(REG_VCOUNT!=191); while(REG_VCOUNT==191); }
+	}
+}
+
 int main() {
+	scanKeys();
+	if(keysDown() & KEY_B)autoBootCart = true;
 	wasDSi = isDSiMode();
 	if (wasDSi && (REG_SCFG_EXT & BIT(31)))SCFGUnlocked = true;
 	defaultExceptionHandler();
-	BootSplashInit(wasDSi);
-	printf("\n\n\n\n\n\n Checking cart. Please Wait...");
+	BootSplashInit();
+	
+	if (autoBootCart) {
+		printf("\n\n\n\n\n\n       Launching XuluMenu.\n          Please Wait...");
+	} else {
+		printf("\n\n\n\n\n\n Checking cart. Please Wait...");
+	}
+	
 	sysSetCardOwner(BUS_OWNER_ARM9);
 	if (!wasDSi)sysSetCartOwner(BUS_OWNER_ARM7);
 	MountFATDevices();
 	toncset((void*)0x02000000, 0, 0x800);
 	CardInit();
+	
 	if ((!sdMounted && wasDSi) || (!fatMounted && !wasDSi)) {
 		DoFATerror(true, wasDSi);
 		consoleClear();
@@ -913,53 +960,30 @@ int main() {
 		return 0;
 	}
 	if (memcmp(cartHeader->ndshdr.gameCode, "DSGB", 4)) {
+		if(!WarningPosted)LoadTopScreenDebugSplash();
+		WarningPosted = true;
 		consoleClear();
-		printf("WARNING! The cart in slot 1\ndoesn't appear to be an N-Card\nor one of it's clones!\n\n");
-		printf("Press [A] to continue...\n\n");
-		printf("Press [B] to abort...\n");
-		while(1) {
-			swiWaitForVBlank();
-			scanKeys();
-			if(keysDown() & KEY_A)break;
-			if(keysDown() & KEY_B) {
-				consoleClear();
-				fifoSendValue32(FIFO_USER_03, 1);
-				return 0;
-			}
-		}
+		PrintToTop("WARNING! The cart in slot 1\ndoesn't appear to be an\nN-Card or one of it's clones!\n\n", -1, false);
+		
 	}
 	if (*(u32*)(INITBUFFER) != 0x2991AE1D) {
+		if(!WarningPosted)LoadTopScreenDebugSplash();
 		consoleClear();
+		WarningPosted = true;
 		FILE *initFile = fopen("sd:/nrioFiles/nrio_InitLog.bin", "wb");
 		if (initFile) {
 			fwrite((u32*)INITBUFFER, 0x200, 1, initFile); // Used Region
 			fclose(initFile);
 		}
 		toncset((void*)0x02000000, 0, 0x800);
-		printf("WARNING! Cart returned\nunexpected response from init\ncommand!\n\n");
-		printf("Press [A] to continue...\n\n");
-		printf("Press [B] to abort...\n");
-		while(1) {
-			swiWaitForVBlank();
-			scanKeys();
-			if(keysDown() & KEY_A) {
-				consoleClear();
-				CardInit();
-				DoWait();
-				break;
-			}
-			if(keysDown() & KEY_B) {
-				consoleClear();
-				fifoSendValue32(FIFO_USER_03, 1);
-				return 0;
-			}
-		}
+		PrintToTop("WARNING! Cart returned\nunexpected response from init\ncommand!\n\n", -1, false);
 	}
+	if (autoBootCart) { SetSCFG(); DoCartBoot(); }
 	// Enable vblank handler
 	irqSet(IRQ_VBLANK, vblankHandler);
 	
 	if (wasDSi) { if(access("sd:/nrioFiles", F_OK) != 0)mkdir("sd:/nrioFiles", 0777); } else { if(access("fat:/nrioFiles", F_OK) != 0)mkdir("fat:/nrioFiles", 0777); }
-	
+			
 	while(1) {
 		if (ErrorState) {
 			consoleClear();
@@ -971,20 +995,27 @@ int main() {
 				switch (MainMenu()) {
 					case 0: { DoStage2Dump(); } break;
 					case 1: { DoUdiskDump(); } break;
-					// case 2: { MenuID = 1; } break;
+					case 2: { MenuID = 1; } break;
 					case 3: { MenuID = 2; } break;
 					case 4: { DoStage1Dump(); } break;
 					case 5: { DoTestDump(); } break;
-					// case 6: { DoBannerWrite(); } break;
-					case 7: { ErrorState = true; } break;
+					case 6: { ErrorState = true; } break;
+					case 7: {
+						SetSCFG();
+						DoCartBoot();
+					} break;
 				}
 			} break;
-			/*case 1: {
+			case 1: {
 				switch (UtilityMenu()) {
-					case 0: { DoUdiskConvert(); } break;
-					case 1: { MenuID = 0; } break;
+					case 0: { DoUpdateConvert(); } break;
+					// case 1: { DoBannerWrite(); } break;
+					case 2: { 
+						MenuID = 0; 
+						if (!WarningPosted)LoadTopScreenSplash();
+					} break;
 				}
-			} break;*/
+			} break;
 			case 2: {
 				switch (DLDIMenu()) {
 					case 0: { DoCartBoot(); } break;

@@ -26,7 +26,7 @@ GRAPHICS := graphics
 #---------------------------------------------------------------------------------
 ARCH	:= 	-mthumb -mthumb-interwork -march=armv5te -mtune=arm946e-s
 
-CFLAGS  :=	-g -Wall -Os\
+CFLAGS  :=	-g -Wall -Os \
             $(ARCH) $(INCLUDE) -DARM9 -D_NO_BOOTSTUB_
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions
 ASFLAGS  := -g $(ARCH)
