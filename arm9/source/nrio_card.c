@@ -43,12 +43,21 @@ void nrioSendCommand(u32 cmdbuffer, u32 cmdData, u8 cmd, u32 cmdflags) {
 	}
 }*/
 
+// Final C1 command now reads from 0x08 location of header like origional stage1 main rom does instead of hardcoding.
+// Some different capacity cards are known to use different values. 1080 = what most 16g carts use. Some 2G carts also use this value
 
-void InitCartNandReadMode() {
+void InitCartNandReadMode(u32 CardType) {
+	// Only bricked carts would present values like these. Hard Code 1083 if this is the case
+	switch (CardType) {
+		case 0x00000000: { CardType = 0x10830000; }break;
+		case 0xFFFFFFFF: { CardType = 0x10830000; }break;
+	}
+	
 	cardParamCommand (0x66, 0, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | CARD_SEC_CMD | BIT(20) | BIT(19) | BIT(14) | BIT(13), (u32*)INITBUFFER, 128);
 	cardParamCommand (0xC1, 0x0D210000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x10), 128);
 	cardParamCommand (0xC1, 0x0FB00000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x10), 128);
-	cardParamCommand (0xC1, 0x10830000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x20), 128);
+	cardParamCommand (0xC1, CardType, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x20), 128);
+	// cardParamCommand (0xC1, 0x10830000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x20), 128);
 	// DoWait(8);
 	/**(vu32*)INITBUFFER = nrioInit(0x66, 0xAF586000);
 	nrioSendCommand((u32)(INITBUFFER + 0x10), 0x0D210000, 0xC1, 0xA7020000);

@@ -155,12 +155,16 @@ void CardInit(bool Silent = true, bool SkipSlotReset = false) {
 	tonccpy(gameTitle, cartHeader->ndshdr.gameTitle, 12);
 	tonccpy(gameCode, cartHeader->ndshdr.gameCode, 6);
 	ndsHeader = loadHeader(cartHeader); // copy twlHeaderTemp to ndsHeader location
-	InitCartNandReadMode();
+	u32 CardType = *(u32*)(DSI_HEADER + 0x08);
+	InitCartNandReadMode(CardType);
 	DoWait();
 	if (!Silent) {
 		if (wasDSi && SCFGUnlocked) { iprintf("SCFG_MC Status:  %2x \n\n", REG_SCFG_MC); }
 		iprintf("Detected Cart Name: %12s \n\n", gameTitle);
 		iprintf("Detected Cart Game Id: %6s \n\n", gameCode);
+		iprintf("Detected Cart Type: %8x \n\n", (unsigned int)CardType);
+		printf("Press any button to continue...");
+		do { swiWaitForVBlank(); scanKeys(); } while (!keysDown());
 	}
 }
 
@@ -790,7 +794,7 @@ void DoUdiskDump() {
 }*/
 
 int UtilityMenu() {
-	LoadTopScreenUtilitySplash();
+	if(!WarningPosted)LoadTopScreenUtilitySplash();
 	int value = -1;
 	consoleClear();
 	printf("Press [A] to build update file\n");

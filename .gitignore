@@ -38,6 +38,8 @@
 *.cmd
 *.nds
 *.app
+*.tmd
+*.zip
 *.arm7
 *.arm9
 *.elf
