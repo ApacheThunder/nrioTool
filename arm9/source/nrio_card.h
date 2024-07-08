@@ -5,8 +5,7 @@
 extern "C" {
 #endif
 
-void InitCartNandReadMode(void);
-void InitCartNandReadModeALT(void);
+void InitCartNandReadMode(u32 CardType);
 ITCM_CODE void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words);
 ITCM_CODE void nrio_readSector(void* destination, u32 rom_offset);
 ITCM_CODE void nrio_readSectorB7(void* destination, u32 rom_offset);
