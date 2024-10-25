@@ -36,7 +36,7 @@ _start:
 	bl	CopyMem
 
 @ Start ARM9 binary
-	ldr	r0, =0x027FFE24	
+	ldr	r0, =0x02FFFE24	
 	ldr	r1, =_arm9_start
 	str	r1, [r0]
 

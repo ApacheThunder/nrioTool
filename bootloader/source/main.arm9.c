@@ -36,72 +36,13 @@
 #include <nds/timers.h>
 #include <nds/system.h>
 #include <nds/ipc.h>
-
 #include "common.h"
-#include "miniConsole.h"
 
-#define TMP_DATA 0x027FC000
+#define TMP_DATA 0x02FFC000
 
 volatile u32 arm9_BLANK_RAM = 0;
 volatile u32 arm9_errorCode = 0xFFFFFFFF;
-volatile bool consoleDebugMode = false;
-// volatile u32 defaultFontPalSlot = 0;
 volatile tLauncherSettings* tmpData = (tLauncherSettings*)TMP_DATA;
-
-static bool consoleInit = false;
-static bool debugMode = false;
-
-static char TXT_STATUS[] = "STATUS: ";
-static char TXT_ERROR[] = "ERROR: ";
-static char ERRTXT_NONE[] = "NONE";
-static char ERRTXT_STS_CLRMEM[] = "CLEAR MEMORY";
-static char ERRTXT_STS_LOAD_BIN[] = "LOAD CART";
-static char ERRTXT_STS_STARTBIN[] = "START BINARY";
-static char ERRTXT_STS_START[] = "BOOTLOADER STARTUP";
-static char ERRTXT_SDINIT[] = "SD INIT FAIL";
-static char ERRTXT_FILE[] = "FILE LOAD FAIL";
-static char NEW_LINE[] = "\n";
-
-static void arm9_errorOutput (u32 code) {
-	Print(NEW_LINE);
-	switch (code) {
-		case (ERR_NONE) : {
-			// BG_PALETTE_SUB[defaultFontPalSlot] = 0x8360;
-			Print(TXT_STATUS);
-			Print(ERRTXT_NONE);
-		} break;
-		case (ERR_STS_CLR_MEM) : {
-			// BG_PALETTE_SUB[defaultFontPalSlot] = 0x8360;
-			Print(TXT_STATUS);
-			Print(ERRTXT_STS_CLRMEM);
-		} break;
-		case (ERR_STS_LOAD_BIN) : {
-			// BG_PALETTE_SUB[defaultFontPalSlot] = 0x8360;
-			Print(TXT_STATUS);
-			Print(ERRTXT_STS_LOAD_BIN);
-		} break;
-		case (ERR_STS_STARTBIN) : {
-			// BG_PALETTE_SUB[defaultFontPalSlot] = 0x8360;
-			Print(TXT_STATUS);
-			Print(ERRTXT_STS_STARTBIN);
-		} break;
-		case (ERR_STS_START) : {
-			// BG_PALETTE_SUB[defaultFontPalSlot] = 0x8360;
-			Print(TXT_STATUS);
-			Print(ERRTXT_STS_START);
-		} break;
-		case (ERR_SDINIT) : {
-			// BG_PALETTE_SUB[defaultFontPalSlot] = 0x801B;
-			Print(TXT_ERROR);
-			Print(ERRTXT_SDINIT);
-		} break;
-		case (ERR_FILELOAD) : {
-			// BG_PALETTE_SUB[defaultFontPalSlot] = 0x801B;
-			Print(TXT_ERROR);
-			Print(ERRTXT_FILE);
-		} break;
-	}
-}
 
 /*-------------------------------------------------------------------------
 External functions
@@ -111,7 +52,7 @@ extern void arm9_reset (void);
 
 /*-------------------------------------------------------------------------
 arm9_main
-Clears the ARM9's icahce and dcache
+Clears the ARM9's icache and dcache
 Clears the ARM9's DMA channels and resets video memory
 Jumps to the ARM9 NDS binary in sync with the  ARM7
 Written by Darkain, modified by Chishm
@@ -128,8 +69,6 @@ void arm9_main (void) {
 	REG_IME = 0;
 	REG_IE = 0;
 	REG_IF = ~0;
-
-	if (debugMode)arm9_errorCode = ERR_STS_START;
 
 	// Synchronise start
 	ipcSendState(ARM9_START);
@@ -169,30 +108,7 @@ void arm9_main (void) {
 	// set ARM9 state to ready and wait for instructions from ARM7
 	ipcSendState(ARM9_READY);
 	while (ipcRecvState() != ARM7_BOOTBIN) {
-		if (ipcRecvState() == ARM7_ERR) {
-			if (!consoleInit) {
-				/*BG_PALETTE_SUB[0] = RGB15(31,31,31);
-				BG_PALETTE_SUB[255] = RGB15(0,0,0);
-				defaultFontPalSlot = 0x1F;*/
-				miniconsoleSetWindow(5, 11, 24, 1); // Set console position for debug text if/when needed.
-				consoleInit = true;
-			}
-			arm9_errorOutput (arm9_errorCode);
-			// Halt after displaying error code
-			while(1);
-		} else if ((arm9_errorCode != ERR_NONE) && debugMode) {
-			if (!consoleInit) {
-				/*BG_PALETTE_SUB[0] = RGB15(31,31,31);
-				BG_PALETTE_SUB[255] = RGB15(0,0,0);
-				defaultFontPalSlot = 0x1F;*/
-				miniconsoleSetWindow(5, 11, 24, 1); // Set console position for debug text if/when needed.
-				consoleInit = true;
-			}
-			while(REG_VCOUNT!=191); // Add vblank delay. Arm7 can somtimes go through the status codes pretty quick.
-			while(REG_VCOUNT==191);
-			arm9_errorOutput (arm9_errorCode);
-			arm9_errorCode = ERR_NONE;
-		}
+		if (ipcRecvState() == ARM7_ERR)while(1);
 	}
 
 	arm9_reset();

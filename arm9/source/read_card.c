@@ -354,6 +354,12 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	while(REG_ROMCTRL&CARD_BUSY) ;
 
 	toncset(headerData, 0, 0x1000);
+	
+	// Read the header
+	cardParamCommand (CARD_CMD_HEADER_READ, 0,
+		CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
+		(void*)headerData, 0x200/sizeof(u32));
+
 
 	iCardId=cardReadID(CARD_CLK_SLOW);
 	while(REG_ROMCTRL & CARD_BUSY);
@@ -361,11 +367,6 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 
 	normalChip = (iCardId & BIT(31)) != 0; // ROM chip ID MSB
 	nandChip = (iCardId & BIT(27)) != 0; // Card has a NAND chip
-
-	// Read the header
-	cardParamCommand (CARD_CMD_HEADER_READ, 0,
-		CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
-		(void*)headerData, 0x200/sizeof(u32));
 	
 	// tonccpy((void*)headerData, (void*)nrioHeader, 0x200);
 

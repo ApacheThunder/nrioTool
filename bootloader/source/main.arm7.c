@@ -62,11 +62,21 @@ static unsigned long storedFileCluster;
 
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // Important things
-#define NDS_HEADER			0x027FFE00
-#define TMP_HEADER			0x027FC000
+#define NDS_HEADER			0x02FFFE00
+#define TMP_HEADER			0x02FFC000
+
+#define REG_GPIO_WIFI		*(vu16*)0x4004C04
+
 tNDSHeader* ndsHeader;
 
-#define REG_GPIO_WIFI *(vu16*)0x4004C04
+static u32 chipID;
+
+const char* getRomTid(const tNDSHeader* ndsHeader) {
+	static char romTid[5];
+	strncpy(romTid, ndsHeader->gameCode, 4);
+	romTid[4] = '\0';
+	return romTid;
+}
 
 static void errorOutput (u32 code, bool isError) {
 	arm9_errorCode = code;
@@ -336,11 +346,57 @@ static void arm7_resetMemory (void) {
 	REG_POWERCNT = 1;
 }
 
+static void setMemoryAddress(const tNDSHeader* ndsHeader) {
+	if (ndsHeader->unitCode > 0) {
+		copyLoop((u32*)0x02FFFA80, (u32*)ndsHeader, 0x160);	// Make a duplicate of DS header
+
+		*(u32*)(0x02FFA680) = 0x02FD4D80;
+		*(u32*)(0x02FFA684) = 0x00000000;
+		*(u32*)(0x02FFA688) = 0x00001980;
+
+		*(u32*)(0x02FFF00C) = 0x0000007F;
+		*(u32*)(0x02FFF010) = 0x550E25B8;
+		*(u32*)(0x02FFF014) = 0x02FF4000;
+
+		// Set region flag
+		if (strncmp(getRomTid(ndsHeader)+3, "J", 1) == 0) {
+			*(u8*)(0x02FFFD70) = 0;
+		} else if (strncmp(getRomTid(ndsHeader)+3, "E", 1) == 0) {
+			*(u8*)(0x02FFFD70) = 1;
+		} else if (strncmp(getRomTid(ndsHeader)+3, "P", 1) == 0) {
+			*(u8*)(0x02FFFD70) = 2;
+		} else if (strncmp(getRomTid(ndsHeader)+3, "U", 1) == 0) {
+			*(u8*)(0x02FFFD70) = 3;
+		} else if (strncmp(getRomTid(ndsHeader)+3, "C", 1) == 0) {
+			*(u8*)(0x02FFFD70) = 4;
+		} else if (strncmp(getRomTid(ndsHeader)+3, "K", 1) == 0) {
+			*(u8*)(0x02FFFD70) = 5;
+		}
+	}
+	
+    // Set memory values expected by loaded NDS
+    // from NitroHax, thanks to Chism
+	*((u32*)0x02FFF800) = chipID;					// CurrentCardID
+	*((u32*)0x02FFF804) = chipID;					// Command10CardID
+	*((u16*)0x02FFF808) = ndsHeader->headerCRC16;	// Header Checksum, CRC-16 of [000h-15Dh]
+	*((u16*)0x02FFF80A) = ndsHeader->secureCRC16;	// Secure Area Checksum, CRC-16 of [ [20h]..7FFFh]
+	*((u16*)0x02FFF850) = 0x5835;
+	// Copies of above
+	*((u32*)0x02FFFC00) = chipID;					// CurrentCardID
+	*((u32*)0x02FFFC04) = chipID;					// Command10CardID
+	*((u16*)0x02FFFC08) = ndsHeader->headerCRC16;	// Header Checksum, CRC-16 of [000h-15Dh]
+	*((u16*)0x02FFFC0A) = ndsHeader->secureCRC16;	// Secure Area Checksum, CRC-16 of [ [20h]..7FFFh]
+	*((u16*)0x02FFFC10) = 0x5835;
+	*((u16*)0x02FFFC40) = 0x01;						// Boot Indicator -- EXTREMELY IMPORTANT!!! Thanks to cReDiAr
+}
+
+
 static void arm7_loadBinary (aFile File) {
 	fileRead((void*)NDS_HEADER, &File, 0, 0x170);
 	ndsHeader = (tNDSHeader*)NDS_HEADER;
 	fileRead(ndsHeader->arm9destination, &File, ndsHeader->arm9romOffset, ndsHeader->arm9binarySize);
 	fileRead(ndsHeader->arm7destination, &File, ndsHeader->arm7romOffset, ndsHeader->arm7binarySize);
+	setMemoryAddress(ndsHeader);
 }
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -356,6 +412,7 @@ void arm7_main (void) {
 		
 	if (language != 0xFF)language = (int)tmpData->language;
 	storedFileCluster = tmpData->fileCluster;
+	if ((tmpData->cachedChipID != 0) && (tmpData->cachedChipID != 0xFFFFFFFF))chipID = tmpData->cachedChipID;
 	
 	// Init card
 	if(!FAT_InitFiles(true))errorOutput(ERR_SDINIT, true);

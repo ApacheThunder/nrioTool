@@ -14,6 +14,11 @@
 #define CARDB7FLAGS (u32)0xB9180000
 // #define CARDB7FLAGS (u32)0xBF180000
 
+volatile u32 CARD_CR2_D2 = 0;
+
+/*static u32 CARD_CR2_D2 = 0;
+static bool CARDCR2INIT = false;*/
+
 /*u32 nrioInit(u8 cmd, u32 cmdFlags) {
 	*(vu8*)(0x040001A1) = 0xC0;
 	*(vu32*)0x040001A4 = cmdFlags;
@@ -46,29 +51,6 @@ void nrioSendCommand(u32 cmdbuffer, u32 cmdData, u8 cmd, u32 cmdflags) {
 // Final C1 command now reads from 0x08 location of header like origional stage1 main rom does instead of hardcoding.
 // Some different capacity cards are known to use different values. 1080 = what most 16g carts use. Some 2G carts also use this value
 
-void InitCartNandReadMode(u32 CardType) {
-	// Only bricked carts would present values like these. Hard Code 1083 if this is the case
-	switch (CardType) {
-		case 0x00000000: { CardType = 0x10830000; }break;
-		case 0xFFFFFFFF: { CardType = 0x10830000; }break;
-	}
-	
-	cardParamCommand (0x66, 0, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | CARD_SEC_CMD | BIT(20) | BIT(19) | BIT(14) | BIT(13), (u32*)INITBUFFER, 128);
-	cardParamCommand (0xC1, 0x0D210000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x10), 128);
-	cardParamCommand (0xC1, 0x0FB00000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x10), 128);
-	cardParamCommand (0xC1, CardType, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x20), 128);
-	// cardParamCommand (0xC1, 0x10830000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x20), 128);
-	// DoWait(8);
-	/**(vu32*)INITBUFFER = nrioInit(0x66, 0xAF586000);
-	nrioSendCommand((u32)(INITBUFFER + 0x10), 0x0D210000, 0xC1, 0xA7020000);
-	nrioSendCommand((u32)(INITBUFFER + 0x20), 0x0FB00000, 0xC1, 0xA7020000);
-	nrioSendCommand((u32)(INITBUFFER + 0x30), 0x10830000, 0xC1, 0xA7020000);*/
-	// nrioSendCommand((u32)(INITBUFFER + 0x30), 0x10430000, 0xC1, 0xA7020000);
-	// nrioSendCommand((u32)(INITBUFFER + 0x40), 0x10BF0000, 0xC1, 0xA7020000); // 0x107F0000 is alt
-}
-
-
-
 ITCM_CODE u32 CalcCARD_CR2_D2() {
 	u32 da,db,dc,ncr2;
 	da=CARDD2FLAGS; // Originally obtained from 0x27FFE60?
@@ -85,13 +67,39 @@ ITCM_CODE u32 CalcCARD_CR2_D2() {
 	return ncr2;
 }
 
+ITCM_CODE void InitCartNandReadMode(u32 CardType) {
+	// Only bricked carts would present values like these. Hard Code 1083 if this is the case
+	switch (CardType) {
+		case 0x00000000: { CardType = 0x10830000; }break;
+		case 0xFFFFFFFF: { CardType = 0x10830000; }break;
+	}
+	
+	cardParamCommand (0x66, 0, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | CARD_SEC_CMD | BIT(20) | BIT(19) | BIT(14) | BIT(13), (u32*)INITBUFFER, 128);
+	cardParamCommand (0xC1, 0x0D210000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x10), 128);
+	cardParamCommand (0xC1, 0x0FB00000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x10), 128);
+	cardParamCommand (0xC1, CardType, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x20), 128);
+	
+	CARD_CR2_D2 = CalcCARD_CR2_D2();
+	
+	// cardParamCommand (0xC1, 0x10830000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x20), 128);
+	// DoWait(8);
+	/**(vu32*)INITBUFFER = nrioInit(0x66, 0xAF586000);
+	nrioSendCommand((u32)(INITBUFFER + 0x10), 0x0D210000, 0xC1, 0xA7020000);
+	nrioSendCommand((u32)(INITBUFFER + 0x20), 0x0FB00000, 0xC1, 0xA7020000);
+	nrioSendCommand((u32)(INITBUFFER + 0x30), 0x10830000, 0xC1, 0xA7020000);*/
+	// nrioSendCommand((u32)(INITBUFFER + 0x30), 0x10430000, 0xC1, 0xA7020000);
+	// nrioSendCommand((u32)(INITBUFFER + 0x40), 0x10BF0000, 0xC1, 0xA7020000); // 0x107F0000 is alt
+}
+
+
 
 ITCM_CODE void cardreadpage(u32 addr, u32 dst, u8 cmd, u32 card_cr2) {
 	cardParamCommand (cmd, addr, card_cr2, (u32*)dst, 128);
 }
 
 ITCM_CODE void nrio_readSector(void* destination, u32 rom_offset) {
-	cardreadpage(rom_offset, (u32)destination, CARD_CMD_D2, CalcCARD_CR2_D2());
+	// cardreadpage(rom_offset, (u32)destination, CARD_CMD_D2, CalcCARD_CR2_D2());
+	cardreadpage(rom_offset, (u32)destination, CARD_CMD_D2, CARD_CR2_D2);
 }
 
 ITCM_CODE void nrio_readSectorB7(void* destination, u32 rom_offset) {
@@ -101,11 +109,13 @@ ITCM_CODE void nrio_readSectorB7(void* destination, u32 rom_offset) {
 ITCM_CODE void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words) {
 	ALIGN(4) u32 read_buffer[128];
 	u32 last_read_size = num_words % 128;
+	u32 offset = rom_offset;
+	u8* dest = (u8*)destination;
 	while(num_words > 0) {
-		nrio_readSector(read_buffer, rom_offset);
-		memcpy(destination, read_buffer, num_words == 128 ? 128 : last_read_size);
-		destination = (u8*)destination + 0x200;
-		rom_offset += 0x200;
+		nrio_readSector(read_buffer, offset);
+		memcpy(dest, read_buffer, num_words == 128 ? 128 : last_read_size);
+		dest = ((u8*)dest + 0x200);
+		offset += 0x200;
 		if(num_words < 128)num_words = 128;
 		num_words -= 128;
 	}
