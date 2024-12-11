@@ -32,7 +32,6 @@
 
 #define CONSOLE_SCREEN_WIDTH 32
 #define CONSOLE_SCREEN_HEIGHT 24
-#define StatRefreshRate 41
 
 // #define NUM_SECTORS 4023552
 // #define NUM_SECTORS 3991808
@@ -109,6 +108,14 @@ const char* textProgressBuffer = "X------------------------------X\nX-----------
 
 bool dldiDebugMode = false;
 extern bool TopSelected;
+
+ITCM_CODE void SetSCFG() {
+	if (REG_SCFG_EXT & BIT(31)) {
+		REG_SCFG_EXT &= ~(1UL << 14);
+		REG_SCFG_EXT &= ~(1UL << 15);
+		for (int i = 0; i < 10; i++) { while(REG_VCOUNT!=191); while(REG_VCOUNT==191); }
+	}
+}
 
 u64 getBytesFree(const char* drivePath) {
     struct statvfs st;
@@ -297,7 +304,6 @@ void DoUpdateConvert() {
 	}
 }
 
-
 void DoCartBoot() {
 	consoleClear();
 	if(access("sd:/nrioFiles/xBootStrap.nds", F_OK) != 0 && nitroFSMounted) {
@@ -329,7 +335,7 @@ void DoCartBoot() {
 		if (!getcwd (filePath, PATH_MAX)) { ErrorState = true; return; }
 		pathLen = strlen(filename);
 		strcpy (filePath + pathLen, filename);
-		runLaunchEngine(-1, st.st_ino);
+		runLaunchEngine(-1, st.st_ino, false);
 		ErrorState = true;
 		return;
 	} else {
@@ -343,6 +349,99 @@ void DoCartBoot() {
 	}
 	return;
 }
+
+void DoGM9iBoot() {
+	consoleClear();
+	if(access("sd:/nrioFiles/GM9Nrio.nds", F_OK) != 0 && nitroFSMounted) {
+		FILE *src = fopen("nitro:/GM9Nrio.nds", "rb");
+		if (src) {
+			FILE *dest = fopen("sd:/nrioFiles/GM9Nrio.nds", "wb");
+			if (dest) {
+				fseek(src, 0, SEEK_END);
+				u32 fSize = ftell(src);
+				fseek(src, 0, SEEK_SET);
+				if (fSize < MAXFILESIZE && fSize > 0) {
+					printf("WARNING: GM9Nrio not found!\n");
+					printf("Trying to use NitroFS copy.\n\n");
+					printf("Please wait...\n");
+					fread((void*)FILECOPYBUFFER, 1, fSize, src);
+					fwrite((void*)FILECOPYBUFFER, fSize, 1, dest);
+					fclose(src);
+					fclose(dest);
+				}
+			}
+		}
+	}
+	if (access("sd:/nrioFiles/GM9Nrio.nds", F_OK) == 0) {
+		struct stat st;
+		char filePath[PATH_MAX];
+		int pathLen;
+		const char* filename = "sd:/nrioFiles/GM9Nrio.nds";
+		if (stat (filename, &st) < 0) { ErrorState = true; return; }
+		if (!getcwd (filePath, PATH_MAX)) { ErrorState = true; return; }
+		pathLen = strlen(filename);
+		strcpy (filePath + pathLen, filename);
+		runLaunchEngine(-1, st.st_ino, true);
+		ErrorState = true;
+		return;
+	} else {
+		printf("ERROR: GM9Nrio.nds not found!");
+		printf("\n\n\nPress [A] to abort.\n");
+		while(1) {
+			swiWaitForVBlank();
+			scanKeys();
+			if(keysDown() & KEY_A)return;
+		}
+	}
+	return;
+}
+
+void DoSaveTestBoot() {
+	consoleClear();
+	if(access("sd:/nrioFiles/nrioSaveTester.nds", F_OK) != 0 && nitroFSMounted) {
+		FILE *src = fopen("nitro:/nrioSaveTester.nds", "rb");
+		if (src) {
+			FILE *dest = fopen("sd:/nrioFiles/nrioSaveTester.nds", "wb");
+			if (dest) {
+				fseek(src, 0, SEEK_END);
+				u32 fSize = ftell(src);
+				fseek(src, 0, SEEK_SET);
+				if (fSize < MAXFILESIZE && fSize > 0) {
+					printf("nrioSaveTester not found!\n");
+					printf("Trying to use NitroFS copy.\n\n");
+					printf("Please wait...\n");
+					fread((void*)FILECOPYBUFFER, 1, fSize, src);
+					fwrite((void*)FILECOPYBUFFER, fSize, 1, dest);
+					fclose(src);
+					fclose(dest);
+				}
+			}
+		}
+	}
+	if (access("sd:/nrioFiles/nrioSaveTester.nds", F_OK) == 0) {
+		struct stat st;
+		char filePath[PATH_MAX];
+		int pathLen;
+		const char* filename = "sd:/nrioFiles/nrioSaveTester.nds";
+		if (stat (filename, &st) < 0) { ErrorState = true; return; }
+		if (!getcwd (filePath, PATH_MAX)) { ErrorState = true; return; }
+		pathLen = strlen(filename);
+		strcpy (filePath + pathLen, filename);
+		runLaunchEngine(-1, st.st_ino, true);
+		ErrorState = true;
+		return;
+	} else {
+		printf("ERROR:\nnrioSaveTester.nds not found!");
+		printf("\n\n\nPress [A] to abort.\n");
+		while(1) {
+			swiWaitForVBlank();
+			scanKeys();
+			if(keysDown() & KEY_A)return;
+		}
+	}
+	return;
+}
+
 
 void DoImageDump() {
 	consoleClear();
@@ -947,14 +1046,13 @@ int UtilityMenu() {
 	if(!WarningPosted)LoadTopScreenUtilitySplash();
 	int value = -1;
 	consoleClear();
-	printf("Press [A] to build update file\n");
-	// printf("Press [X] write banner to cart\n");
+	printf("Press [A] to boot GodMode9Nrio\n");
 	printf("\n");
+	printf("Press [X] to build update file\n");
+	printf("\n"); 
+	printf("\n"); 
 	printf("\n");
-	printf("\n");
-	printf("\n");
-	printf("\n");
-	printf("\n");
+	printf("\n"); // printf("Press [Y] write banner to cart\n");
 	printf("\n");
 	printf("\n\n\n\n\n\n\n\nPress [B] to go to main menu...\n");
 	while(value == -1) {
@@ -962,8 +1060,9 @@ int UtilityMenu() {
 		scanKeys();
 		switch (keysDown()){
 			case KEY_A: 	{ value = 0; } break;
-			// case KEY_X:		{ value = 1; } break;
-			case KEY_B:		{ value = 2; } break;
+			case KEY_X:		{ value = 1; } break;
+			// case KEY_LEFT:		{ value = 2; } break;
+			case KEY_B:		{ value = 4; } break;
 		}
 	}
 	return value;
@@ -992,9 +1091,7 @@ int DLDIMenu() {
 	swiWaitForVBlank();
 	if (!ntrMode) {
 		ntrMode = true;
-		REG_SCFG_EXT &= ~(1UL << 14);
-		REG_SCFG_EXT &= ~(1UL << 15);
-		for (int i = 0; i < 30; i++) { while(REG_VCOUNT!=191); while(REG_VCOUNT==191); }
+		SetSCFG();
 	}
 	if (!nrioDLDIMounted) {
 		nrioDLDIMounted = fatInitDefault();
@@ -1052,14 +1149,15 @@ int MainMenu() {
 		swiWaitForVBlank();
 		scanKeys();
 		switch (keysDown()) {
-			case KEY_A: 	{ value = 0; } break;
-			case KEY_Y: 	{ value = 1; } break;
-			case KEY_L: 	{ value = 2; } break;
-			case KEY_X: 	{ if (wasDSi)value = 3; } break;
-			case KEY_LEFT: 	{ value = 4; } break;
-			case KEY_RIGHT: { value = 5; } break;
-			case KEY_B:		{ value = 6; } break;
-			case KEY_START: { value = 7; } break;
+			case KEY_A: 		{ value = 0; } break;
+			case KEY_Y: 		{ value = 1; } break;
+			case KEY_L: 		{ value = 2; } break;
+			case KEY_X: 		{ if (wasDSi)value = 3; } break;
+			case KEY_LEFT: 		{ value = 4; } break;
+			case KEY_RIGHT:		{ value = 5; } break;
+			case KEY_B:			{ value = 6; } break;
+			case KEY_START:		{ value = 7; } break;
+			case KEY_SELECT:	{ value = 8; } break;
 		}
 	}
 	return value;
@@ -1084,15 +1182,6 @@ void vblankHandler (void) {
 		PrintToTop("%08x ", *(u32*)0x40001AC, false);
 		PrintToTop("%08x\n", *(u32*)0x40001A4, false);
 		// UpdateDebugText = false;
-	}
-}
-
-
-ITCM_CODE void SetSCFG() {
-	if (REG_SCFG_EXT & BIT(31)) {
-		REG_SCFG_EXT &= ~(1UL << 14);
-		REG_SCFG_EXT &= ~(1UL << 15);
-		for (int i = 0; i < 10; i++) { while(REG_VCOUNT!=191); while(REG_VCOUNT==191); }
 	}
 }
 
@@ -1190,13 +1279,21 @@ int main() {
 						SetSCFG();
 						DoCartBoot();
 					} break;
+					case 8: {
+						SetSCFG();
+						DoGM9iBoot();
+					} break;
 				}
 			} break;
 			case 1: {
 				switch (UtilityMenu()) {
-					case 0: { DoUpdateConvert(); } break;
-					// case 1: { DoBannerWrite(); } break;
-					case 2: { 
+					case 0: { 
+						SetSCFG();
+						DoGM9iBoot();
+					} break;
+					case 1: { DoUpdateConvert(); } break;
+					// case 3: { DoBannerWrite(); } break;
+					case 4: { 
 						MenuID = 0; 
 						if (!WarningPosted)LoadTopScreenSplash();
 					} break;

@@ -78,9 +78,6 @@ static u32 getRandomNumber(void) { return rand(); }
 
 extern bool sdMounted;
 
-// extern void nrioHeader();
-
-
 //---------------------------------------------------------------------------------
 // https://github.com/devkitPro/libnds/blob/105d4943dbac8f2bd99a47b22cd3ed48f96af083/source/common/card.c#L47-L62
 // but modified to write if CARD_WR is set.
@@ -368,8 +365,6 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	normalChip = (iCardId & BIT(31)) != 0; // ROM chip ID MSB
 	nandChip = (iCardId & BIT(27)) != 0; // Card has a NAND chip
 	
-	// tonccpy((void*)headerData, (void*)nrioHeader, 0x200);
-
 	tonccpy(ndsHeader, headerData, 0x200);
 
 	if ((ndsHeader->unitCode != 0) || (ndsHeader->dsi_flags != 0)) {

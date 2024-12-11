@@ -27,7 +27,7 @@
 
 #define TMP_DATA 0x02FFC000
 
-typedef struct sLauncherSettings { u32 cachedChipID; u32 language; unsigned long fileCluster; } tLauncherSettings;
+typedef struct sLauncherSettings { u32 cachedChipID; u16 language; u16 allowSD; unsigned long fileCluster; } tLauncherSettings;
 
 void vramcpy (void* dst, const void* src, int len) {
 	u16* dst16 = (u16*)dst;
@@ -35,7 +35,7 @@ void vramcpy (void* dst, const void* src, int len) {
 	for ( ; len > 0; len -= 2) { *dst16++ = *src16++; }
 }
 
-ITCM_CODE void setSCFG() {
+ITCM_CODE void setSCFG(bool allowSD) {
 	if (REG_SCFG_EXT & BIT(31)) {
 		// MBK settings for NTR mode games
 		*((vu32*)REG_MBK1)=0x8D898581;
@@ -47,11 +47,15 @@ ITCM_CODE void setSCFG() {
 		REG_MBK7 = 0x00003000;
 		REG_MBK8 = 0x00003000;
 	}
-	REG_SCFG_EXT=0x03000000;
+	if (allowSD) {
+		REG_SCFG_EXT=0x03002000;
+	} else {
+		REG_SCFG_EXT=0x03000000;
+	}
 	for (int i = 0; i < 8; i++) { while(REG_VCOUNT!=191); while(REG_VCOUNT==191); }
 }
 
-void runLaunchEngine (int language, u32 fileCluster) {
+void runLaunchEngine (int language, u32 fileCluster, bool allowSD) {
 
 	u32 chipID = cardGetId();
 
@@ -68,10 +72,12 @@ void runLaunchEngine (int language, u32 fileCluster) {
 	tLauncherSettings* tmpData = (tLauncherSettings*)TMP_DATA;
 	tmpData->cachedChipID = chipID;
 	tmpData->language = 0xFF;
+	tmpData->allowSD = 0x00;
 	if (language != -1)tmpData->language = language;
+	if (allowSD)tmpData->allowSD = 0x01;
 	tmpData->fileCluster = fileCluster;
 	
-	setSCFG();
+	setSCFG(allowSD);
 	
 	// Return to passme loop
 	*(vu32*)0x02FFFFFC = 0;

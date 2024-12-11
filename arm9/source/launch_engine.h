@@ -25,8 +25,8 @@
 extern "C" {
 #endif
 
-ITCM_CODE void setSCFG(void);
-void runLaunchEngine (int language, u32 fileCluster);
+ITCM_CODE void setSCFG(bool allowSD);
+void runLaunchEngine (int language, u32 fileCluster, bool allowSD);
 
 #ifdef __cplusplus
 }

@@ -26,7 +26,7 @@
 #define resetCpu() \
 		__asm volatile("swi 0x000000")
 		
-typedef struct sLauncherSettings { u32 cachedChipID; u32 language; unsigned long fileCluster; } tLauncherSettings;
+typedef struct sLauncherSettings { u32 cachedChipID; u16 language; u16 allowSD; unsigned long fileCluster; } tLauncherSettings;
 
 extern volatile tLauncherSettings* tmpData;
 extern volatile u32 arm9_errorCode;

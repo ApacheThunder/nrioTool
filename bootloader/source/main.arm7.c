@@ -54,8 +54,9 @@ extern void arm7_clearmem (void* loc, size_t len);
 extern void arm7_reset (void);
 
 static int language = -1;
+static int allowSD = 0;
 
-static bool useTwlCfg = false;
+static int useTwlCfg = 0;
 static int twlCfgLang = 0;
 
 static unsigned long storedFileCluster;
@@ -283,7 +284,7 @@ static void arm7_readFirmware(tNDSHeader* ndsHeader) {
 
 	tonccpy(PersonalData, currentSettings, sizeof(PERSONAL_DATA));
 
-	if (useTwlCfg && (language == 0xFF || language == -1)) { language = twlCfgLang; }
+	if ((useTwlCfg > 0) && (language == 0xFF || language == -1)) { language = twlCfgLang; }
 
 	if (language >= 0 && language <= 7) {
 		// Change language
@@ -413,6 +414,7 @@ void arm7_main (void) {
 	if (language != 0xFF)language = (int)tmpData->language;
 	storedFileCluster = tmpData->fileCluster;
 	if ((tmpData->cachedChipID != 0) && (tmpData->cachedChipID != 0xFFFFFFFF))chipID = tmpData->cachedChipID;
+	allowSD = tmpData->allowSD;
 	
 	// Init card
 	if(!FAT_InitFiles(true))errorOutput(ERR_SDINIT, true);
@@ -459,8 +461,13 @@ void arm7_main (void) {
 		}
 		REG_GPIO_WIFI |= BIT(8);	// Old NDS-Wifi mode
 		REG_SCFG_ROM = 0x703;
-		REG_SCFG_CLK = 0x100;
-		REG_SCFG_EXT = 0x12A00000;
+		if (allowSD) {
+			REG_SCFG_CLK = 0x187;
+			REG_SCFG_EXT = 0x92A40000;
+		} else {
+			REG_SCFG_CLK = 0x100;
+			REG_SCFG_EXT = 0x12A00000;
+		}
 		while(REG_VCOUNT!=191);
 		while(REG_VCOUNT==191);
 	}

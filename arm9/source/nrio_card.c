@@ -9,9 +9,11 @@
 
 #define INITBUFFER  0x02000000
 
-#define CARD_CMD_D2 0xD2
+#define NANDREADPAGE_D2 0xD2 // NAND Read Page Command
 #define CARDD2FLAGS (u32)0xB918027E
 #define CARDB7FLAGS (u32)0xB9180000
+// Used by a D2 read page command from USB BIOS BURNER 1.0
+// #define CARDD2FLAGS (u32)0xB7180132
 // #define CARDB7FLAGS (u32)0xBF180000
 
 volatile u32 CARD_CR2_D2 = 0;
@@ -53,27 +55,32 @@ void nrioSendCommand(u32 cmdbuffer, u32 cmdData, u8 cmd, u32 cmdflags) {
 
 ITCM_CODE u32 CalcCARD_CR2_D2() {
 	u32 da,db,dc,ncr2;
-	da=CARDD2FLAGS; // Originally obtained from 0x27FFE60?
-	db=CARDD2FLAGS;
-	da=da&0x00001FFF;
-	db=db&0x003F0000;
-	db=db>>16;
-	dc=da+db;
-	dc=(dc/2)-1;
-	ncr2=CARDD2FLAGS;
-	ncr2&=~0x003F1FFF;
-	ncr2|=dc;
-	ncr2 = (u32)((ncr2) & (~0x07000000)) | (3<<24);
+	da = CARDD2FLAGS; // Originally obtained from 0x27FFE60?
+	db = CARDD2FLAGS;
+	da = (da & 0x00001FFF);
+	db = (db & 0x003F0000);
+	db = (db >> 16);
+	dc = (da + db);
+	dc = (dc/2)-1;
+	ncr2 = CARDD2FLAGS;
+	ncr2 &=~ 0x003F1FFF;
+	ncr2 |= dc;
+	ncr2 = ((u32)((ncr2) & (~0x07000000)) | (3<<24));
 	return ncr2;
 }
 
 ITCM_CODE void InitCartNandReadMode(u32 CardType) {
 	// Only bricked carts would present values like these. Hard Code 1083 if this is the case
+	// FYI only other known value that can exist here is 0x10430000 which is used by 1G N-Cards? Only seen it once with a 1g N-Card setup as a bootleg game.
+	// Because of how rare 1G cards would be the default value will be 0x10830000 which 2G, 8G, and 16G cards are known to use.
+	// In theory a 32G card could end up using 0x10C30000. Interestingly enough using this value on a 16G cart does not break nrioTools ability to return correct data.
+	// (using 0x10430000 however does result in just FF data being returned from a 16G cart)
 	switch (CardType) {
 		case 0x00000000: { CardType = 0x10830000; }break;
-		case 0xFFFFFFFF: { CardType = 0x10830000; }break;
+		case 0xFFFFFFFF: { CardType = 0x10830000; }break; 
 	}
 	
+	// Original init sequence from stage1 main rom before it goes to read stage2/retail game from nand as defined by a block stbale stored at 0x8000
 	cardParamCommand (0x66, 0, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | CARD_SEC_CMD | BIT(20) | BIT(19) | BIT(14) | BIT(13), (u32*)INITBUFFER, 128);
 	cardParamCommand (0xC1, 0x0D210000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x10), 128);
 	cardParamCommand (0xC1, 0x0FB00000, CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17), (u32*)(INITBUFFER + 0x10), 128);
@@ -98,15 +105,15 @@ ITCM_CODE void cardreadpage(u32 addr, u32 dst, u8 cmd, u32 card_cr2) {
 }
 
 ITCM_CODE void nrio_readSector(void* destination, u32 rom_offset) {
-	// cardreadpage(rom_offset, (u32)destination, CARD_CMD_D2, CalcCARD_CR2_D2());
-	cardreadpage(rom_offset, (u32)destination, CARD_CMD_D2, CARD_CR2_D2);
+	// cardreadpage(rom_offset, (u32)destination, NANDREADPAGE_D2, CalcCARD_CR2_D2());
+	cardreadpage(rom_offset, (u32)destination, NANDREADPAGE_D2, CARD_CR2_D2);
 }
 
 ITCM_CODE void nrio_readSectorB7(void* destination, u32 rom_offset) {
 	cardreadpage(rom_offset, (u32)destination, CARD_CMD_DATA_READ, CARDB7FLAGS);
 }
 
-ITCM_CODE void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words) {
+/*ITCM_CODE void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words) {
 	ALIGN(4) u32 read_buffer[128];
 	u32 last_read_size = num_words % 128;
 	u32 offset = rom_offset;
@@ -119,9 +126,9 @@ ITCM_CODE void nrio_readSectors(void* destination, u32 rom_offset, u32 num_words
 		if(num_words < 128)num_words = 128;
 		num_words -= 128;
 	}
-}
+}*/
 
-u32 FUN_02000ff4(u8 cmd, u32 data, u32 data2) {
+/*u32 FUN_02000ff4(u8 cmd, u32 data, u32 data2) {
 	*(u8*)0x040001a1 = 0xc0;
 	*(u32*)0x040001a4 = 0xaf000000; // 0xaf000000 romctrl being set here?
 	*(u8*)0x040001a8 = cmd;
@@ -165,7 +172,7 @@ u32 FUN_02001174(void) {
 	*(u8*)0x040001af = 0;
 	while ((*(u32*)0x040001a4 & 0x800000) == 0);
 	return *(u32*)0x04100010;
-}
+}*/
 
 /*u32 FUN_02001384(u32 dest) {
 	u32 result = 0;
@@ -198,86 +205,86 @@ void FUN_020006a4(u32 dest, u32 length) {
 	return;
 }*/
 
-void FUN_0200292c(u32 buff /*u32 unaff_r6, u32 unaff_r8*/) {
-	u32 uVar2;
-	u32 uVar3;
-	u32 *buffAdjust;
-	
-	*(u8*)0x040001a1 = 0xc0;
-	*(u8*)0x040001a8 = 0xd3;
-	*(u8*)0x040001a9 = 0;
-	*(u8*)0x040001aa = 0xff;
-	*(u8*)0x040001ab = 0xff;
-	*(u8*)0x040001ac = 0xff;
-	*(u8*)0x040001ad = 0xff;
-	*(u8*)0x040001ae = 0xff;
-	*(u8*)0x040001af = *(u8*)buff;
-	*(vu32*)0x040001a4 = 0xC1000008; // 0xC9000008
-	buffAdjust = (u32*)(buff + 5);
-	uVar2 = *(u32*)(buff + 1);
-	do {
-		uVar3 = uVar2;
-		// if ((0xC9000008 & 0x800000) != 0) { // This if check doesn't make sense.... I think it was supposd to use 0x040001a4 instead?
-		if ((*(vu32*)0x040001a4 & 0x800000) != 0) {
-			uVar3 = *buffAdjust;
-			buffAdjust = buffAdjust + 1;
-			*(vu32*)0x04100010 = uVar2;
-		}
-		uVar2 = uVar3;
-	} while (*(vu32*)0x040001a4 < 0); // } while ((int)0xC9000008 < 0);
-	return;
-	
-	/*u32 uVar2;
-	u32 uVar3;
-	u32 *puVar4;	
-	int iVar5 = 0;
-	
-	bool unaff_r7 = true;
-	
-	while ((*(u32*)(0x0400011a4) & 0x800000) == 0);
-	if (unaff_r7) { // if (*(int *)(unaff_r7 + 8) == 1) { // I don't know what unaff_r7 was supposed to be. Maybe a value checked in ram to change nand to a new page or something?
-		*(u8*)0x040001a1 = 0xc0;
-		*(u8*)0x040001a8 = 0xd1;
-		*(u8*)0x040001a9 = 0x51;
-		*(u8*)0x040001aa = (u8)(unaff_r6 >> 0x1b);
-		*(u8*)0x040001ab = 0;
-		*(u8*)0x040001ac = 0;
-		*(u8*)0x040001ad = 0;
-		*(u8*)0x040001ae = 0;
-		*(u32*)0x040001a4 = 0xbf000000;
-		while ((0x040001a4 & 0x800000) == 0);
-	}
-	do {		
-		*(u8*)(0x040001a1) = 0xc0;
-		*(u8*)(0x040001a8) = 0xd3;
-		*(u8*)(0x040001a9) = 0;
-		*(u8*)(0x040001aa) = 0xff;
-		*(u8*)(0x040001ab) = 0xff;
-		*(u8*)(0x040001ac) = 0xff;
-		*(u8*)(0x040001ad) = 0xff;
-		*(u8*)(0x040001ae) = 0xff;
-		*(u8*)(0x040001af) = *(u8)unaff_r8;
-		*(u32*)0x040001a4 = 0xC1000008;
-		puVar4 = (u32*)(unaff_r8 + 5);
-		uVar2 = *(u32*)(unaff_r8 + 1);
-		do {
-			uVar3 = uVar2;
-			if ((*(u32*)0x040001a4 & 0x800000) != 0) { // if ((0xC1000008 & 0x800000) != 0) { // another odd setup where it tries to reference something that was set to 0x40001a4
-				uVar3 = *puVar4;
-				puVar4 = puVar4 + 1;
-				*(u32*)0x04100010 = uVar2;
-			}
-			uVar2 = uVar3;
-		} while (*(u32*)0x040001a4 < 0); // } while (*(u32*)DAT_02002a98 < 0); // This originally referenced 0xC1000008 which doesn't make sense to be used here.
-		iVar5 = iVar5 + 0x200;
-		unaff_r8 = unaff_r8 + 0x200;
-	} while (iVar5 != 0x800);
-	FUN_02001074(0xD1611000, 0);
-	return;*/
-}
+// void FUN_0200292c(u32 buff /*u32 unaff_r6, u32 unaff_r8*/) {
+// 	u32 uVar2;
+// 	u32 uVar3;
+// 	u32 *buffAdjust;
+// 	
+// 	*(u8*)0x040001a1 = 0xc0;
+// 	*(u8*)0x040001a8 = 0xd3;
+// 	*(u8*)0x040001a9 = 0;
+// 	*(u8*)0x040001aa = 0xff;
+// 	*(u8*)0x040001ab = 0xff;
+// 	*(u8*)0x040001ac = 0xff;
+// 	*(u8*)0x040001ad = 0xff;
+// 	*(u8*)0x040001ae = 0xff;
+// 	*(u8*)0x040001af = *(u8*)buff;
+// 	*(vu32*)0x040001a4 = 0xC1000008; // 0xC9000008
+// 	buffAdjust = (u32*)(buff + 5);
+// 	uVar2 = *(u32*)(buff + 1);
+// 	do {
+// 		uVar3 = uVar2;
+// 		// if ((0xC9000008 & 0x800000) != 0) { // This if check doesn't make sense.... I think it was supposd to use 0x040001a4 instead?
+// 		if ((*(vu32*)0x040001a4 & 0x800000) != 0) {
+// 			uVar3 = *buffAdjust;
+// 			buffAdjust = buffAdjust + 1;
+// 			*(vu32*)0x04100010 = uVar2;
+// 		}
+// 		uVar2 = uVar3;
+// 	} while (*(vu32*)0x040001a4 < 0); // } while ((int)0xC9000008 < 0);
+// 	return;
+// 	
+// 	/*u32 uVar2;
+// 	u32 uVar3;
+// 	u32 *puVar4;	
+// 	int iVar5 = 0;
+// 	
+// 	bool unaff_r7 = true;
+// 	
+// 	while ((*(u32*)(0x0400011a4) & 0x800000) == 0);
+// 	if (unaff_r7) { // if (*(int *)(unaff_r7 + 8) == 1) { // I don't know what unaff_r7 was supposed to be. Maybe a value checked in ram to change nand to a new page or something?
+// 		*(u8*)0x040001a1 = 0xc0;
+// 		*(u8*)0x040001a8 = 0xd1;
+// 		*(u8*)0x040001a9 = 0x51;
+// 		*(u8*)0x040001aa = (u8)(unaff_r6 >> 0x1b);
+// 		*(u8*)0x040001ab = 0;
+// 		*(u8*)0x040001ac = 0;
+// 		*(u8*)0x040001ad = 0;
+// 		*(u8*)0x040001ae = 0;
+// 		*(u32*)0x040001a4 = 0xbf000000;
+// 		while ((0x040001a4 & 0x800000) == 0);
+// 	}
+// 	do {		
+// 		*(u8*)(0x040001a1) = 0xc0;
+// 		*(u8*)(0x040001a8) = 0xd3;
+// 		*(u8*)(0x040001a9) = 0;
+// 		*(u8*)(0x040001aa) = 0xff;
+// 		*(u8*)(0x040001ab) = 0xff;
+// 		*(u8*)(0x040001ac) = 0xff;
+// 		*(u8*)(0x040001ad) = 0xff;
+// 		*(u8*)(0x040001ae) = 0xff;
+// 		*(u8*)(0x040001af) = *(u8)unaff_r8;
+// 		*(u32*)0x040001a4 = 0xC1000008;
+// 		puVar4 = (u32*)(unaff_r8 + 5);
+// 		uVar2 = *(u32*)(unaff_r8 + 1);
+// 		do {
+// 			uVar3 = uVar2;
+// 			if ((*(u32*)0x040001a4 & 0x800000) != 0) { // if ((0xC1000008 & 0x800000) != 0) { // another odd setup where it tries to reference something that was set to 0x40001a4
+// 				uVar3 = *puVar4;
+// 				puVar4 = puVar4 + 1;
+// 				*(u32*)0x04100010 = uVar2;
+// 			}
+// 			uVar2 = uVar3;
+// 		} while (*(u32*)0x040001a4 < 0); // } while (*(u32*)DAT_02002a98 < 0); // This originally referenced 0xC1000008 which doesn't make sense to be used here.
+// 		iVar5 = iVar5 + 0x200;
+// 		unaff_r8 = unaff_r8 + 0x200;
+// 	} while (iVar5 != 0x800);
+// 	FUN_02001074(0xD1611000, 0);
+// 	return;*/
+// }
 
 
-u32 FUN_0200287c(u32 dest, u32 buff) {
+/*u32 FUN_0200287c(u32 dest, u32 buff) {
 	u32 iVar1;
 	
 	// if (((dest & 0xfffc0000) != 0) && (dest <= 0xa00000U - *(int *)0x02062598)) { // this appears to check if it's a safe/valid location to write to and within the area of ram udisk was located in ram?
@@ -318,37 +325,37 @@ bool FUN_02002aa0(u32 dest, u32 buff, u32 length) {
 		} while (length != 0);
 	}
 	return true;
-}
+}*/
 
-u32 FUN_020011a0(u32 dest) {
-	// u32 iVar1;
-	u32 result = 0xD1616000;
-	
-	// iVar1 = 0x0206258C;
-	// if ((dest & 0xfffc0000) != 0) {
-		// if (dest <= 0xa00000U - *(u32*)0x02062598) {
-			FUN_02001074(0xD1616000, 0);
-			FUN_02001074((dest >> 0xb & 0xff) << 8 | ((dest >> 0xb) << 0x10) >> 0x18 | 0xd1520000, 0);
-			/*if (*(u32 *)(iVar1 + 8) == 1) {
-				FUN_02001074((dest >> 0x1b) << 8 | 0xd1510000,0);
-			}*/
-			*(u8*)0x040001a1 = 0xc0;
-			*(u32*)0x040001a4 = 0xaf000000; // 0xaf000000 romctrl being set here?
-			*(u8*)0x040001a8 = (u8)(0xD161D000 >> 0x18);
-			*(u8*)0x040001a9 = (u8)(0xD161D000 >> 0x10);
-			*(u8*)0x040001aa = (u8)(0xD161D000 >> 8);
-			*(u8*)0x040001ab = (u8)0xD161D000;
-			*(u8*)0x040001ac = 0;
-			*(u8*)0x040001ad = 0;
-			*(u8*)0x040001ae = 0;
-			*(u8*)0x040001af = 0;
-			while ((*(u32*)0x040001a4 & 0x800000) == 0); // (just gonna assume it's doing this like the other functions but nested inside this if check)
-		// } else { result = dest; }
-	// }
-	return result;
-}
+// u32 FUN_020011a0(u32 dest) {
+// 	// u32 iVar1;
+// 	u32 result = 0xD1616000;
+// 	
+// 	// iVar1 = 0x0206258C;
+// 	// if ((dest & 0xfffc0000) != 0) {
+// 		// if (dest <= 0xa00000U - *(u32*)0x02062598) {
+// 			FUN_02001074(0xD1616000, 0);
+// 			FUN_02001074((dest >> 0xb & 0xff) << 8 | ((dest >> 0xb) << 0x10) >> 0x18 | 0xd1520000, 0);
+// 			/*if (*(u32 *)(iVar1 + 8) == 1) {
+// 				FUN_02001074((dest >> 0x1b) << 8 | 0xd1510000,0);
+// 			}*/
+// 			*(u8*)0x040001a1 = 0xc0;
+// 			*(u32*)0x040001a4 = 0xaf000000; // 0xaf000000 romctrl being set here?
+// 			*(u8*)0x040001a8 = (u8)(0xD161D000 >> 0x18);
+// 			*(u8*)0x040001a9 = (u8)(0xD161D000 >> 0x10);
+// 			*(u8*)0x040001aa = (u8)(0xD161D000 >> 8);
+// 			*(u8*)0x040001ab = (u8)0xD161D000;
+// 			*(u8*)0x040001ac = 0;
+// 			*(u8*)0x040001ad = 0;
+// 			*(u8*)0x040001ae = 0;
+// 			*(u8*)0x040001af = 0;
+// 			while ((*(u32*)0x040001a4 & 0x800000) == 0); // (just gonna assume it's doing this like the other functions but nested inside this if check)
+// 		// } else { result = dest; }
+// 	// }
+// 	return result;
+// }
 
-bool FUN_020017ac(u32 dest, u32 *result) {
+/*bool FUN_020017ac(u32 dest, u32 *result) {
 	u32 uVar1 = 0;
 	u32 uVar2 = 0x80808080;
 	
@@ -390,21 +397,21 @@ void FUN_020006a4(u32 dest, u32 length) {
 		dest = length + 0x800;
 	} while (length != 0);
 	return;
-}
+}*/
 
-u32 FUN_02000614(uint dest, u32 src, u32 length) {
-	u32 result = 0;	
-	/*if (*(int *)0x02062598 == 0x40000) {
-		if ((dest & 0x3ffff) == 0) { FUN_020017ac(dest, &result); }
-		FUN_02002aa0(dest, buff, length);
-	} else if (*(int *)0x02062598 == length) {
-		FUN_020017ac(dest,&result);
-		FUN_02002aa0(dest, buff, length);
-	}*/
-	FUN_020017ac(dest, &result);
-	FUN_02002aa0(dest, src, length); // 0x20000
-	return result;
-}
+// u32 FUN_02000614(uint dest, u32 src, u32 length) {
+// 	u32 result = 0;	
+// 	/*if (*(int *)0x02062598 == 0x40000) {
+// 		if ((dest & 0x3ffff) == 0) { FUN_020017ac(dest, &result); }
+// 		FUN_02002aa0(dest, buff, length);
+// 	} else if (*(int *)0x02062598 == length) {
+// 		FUN_020017ac(dest,&result);
+// 		FUN_02002aa0(dest, buff, length);
+// 	}*/
+// 	FUN_020017ac(dest, &result);
+// 	FUN_02002aa0(dest, src, length); // 0x20000
+// 	return result;
+// }
 
 // FUN_02001204
 /*void nrio_writeByte(u8 *param_1) {
@@ -437,8 +444,8 @@ u32 FUN_02000614(uint dest, u32 src, u32 length) {
 }*/
 
 
-
 /*void nrio_writeSectors(u32 dest, u32 src, u32 length) {
 	FUN_02000614(dest, src, length); // iVar13 refers to what may be the uDisk location in ram after read from NitroFS.
 	FUN_020006a4(src, length); // 0x20000
 }*/
+
