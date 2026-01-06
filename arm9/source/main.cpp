@@ -101,8 +101,6 @@ DTCM_DATA volatile bool UpdateDebugText = false;
 
 DTCM_DATA char gameTitle[13] = {0};
 
-const char* textBufferTop = "X------------------------------X\nX------------------------------X";
-const char* textProgressTopBuffer = "X------------------------------X\nX------------------------------X";
 const char* textBuffer = "X------------------------------X\nX------------------------------X";
 const char* textProgressBuffer = "X------------------------------X\nX------------------------------X";
 
@@ -161,16 +159,17 @@ void CardInit(bool Silent = true, bool SkipSlotReset = false) {
 	if (!Silent || !wasDSi)consoleClear();
 	DoWait(30);
 	if (!wasDSi) {
-		ALIGN(4) u32 ntrHeader[0x80];
-		printf("Cart reset required!\nPlease eject Cart...\n");
-		do { swiWaitForVBlank(); getHeader (ntrHeader); } while (ntrHeader[0] != 0xffffffff);
+		/*ALIGN(4) u32 ntrHeader[0x80];
+		printf("Checking state of slot1...\n");
+		do { swiWaitForVBlank(); getHeader(ntrHeader); } while (ntrHeader[0] != 0xffffffff);
 		consoleClear();
-		printf("Reinsert Cart...");
-		do { swiWaitForVBlank(); getHeader (ntrHeader); } while (ntrHeader[0] == 0xffffffff);
-		// Delay half a second for the DS card to stabilise
-		DoWait();
-		printf("Cart reset required!\nPlease eject and reinsert Cart.\n\n");
-		iprintf("Press A when finished....\n");
+		printf("Eject Cart...\n\n");
+		do { swiWaitForVBlank(); getHeader(ntrHeader); } while (ntrHeader[0] == 0xffffffff);
+		consoleClear();
+		Delay half a second for the DS card to stabilise
+		DoWait();*/
+		printf("Cart reset required!\n\nPlease eject and\nreinsert Cart.\n\n");
+		printf("Press A when finished....\n");
 		DoWait();
 		while(1) {
 			swiWaitForVBlank();
@@ -188,10 +187,10 @@ void CardInit(bool Silent = true, bool SkipSlotReset = false) {
 	InitCartNandReadMode(CardType);
 	DoWait();
 	if (!Silent) {
-		if (wasDSi && SCFGUnlocked) { iprintf("SCFG_MC Status:  %2x \n\n", REG_SCFG_MC); }
+		if (wasDSi && SCFGUnlocked) { iprintf("SCFG_MC Status:  %2X \n\n", REG_SCFG_MC); }
 		iprintf("Detected Cart Name: %12s \n\n", gameTitle);
 		iprintf("Detected Cart Game Id: %6s \n\n", gameCode);
-		iprintf("Detected Cart Type: %8x \n\n", (unsigned int)CardType);
+		iprintf("Detected Cart Type: %8X \n\n", (unsigned int)CardType);
 		printf("Press any button to continue...");
 		do { swiWaitForVBlank(); scanKeys(); } while (!keysDown());
 	}
@@ -524,15 +523,15 @@ void DoImageRestore() {
 	DoWait(60);
 	printf("About to write default fat image\n\n");
 	iprintf("Target Cart Capacity: %d\n\n", cartSize);
-	const char* FilePath = "sd:/NOTSUPPORTED";
+	const char* FilePath = "NOTSUPPORTED";
 	if (cartSize == 2011584)FilePath = "sd:/nrioFiles/nrio_basicimage_2011584_16g.img";
 	if (cartSize == 1995712)FilePath = "sd:/nrioFiles/nrio_basicimage_1995712_16g.img";
-	if (access("sd:/nrioFiles/nrio_customimage.img", F_OK) == 0)FilePath = "nrio_customimage.img"; // if present, will write this file over any other.
+	if (access("sd:/nrioFiles/nrio_customimage.img", F_OK) == 0)FilePath = "sd:/nrioFiles/nrio_customimage.img"; // if present, will write this file over any other.
 	if (access(FilePath, F_OK) != 0 && nitroFSMounted) {
 		if (cartSize == 2011584)FilePath = "nitro:/nrio_basicimage_2011584_16g.img";
 		if (cartSize == 1995712)FilePath = "nitro:/nrio_basicimage_1995712_16g.img";
 	}
-	if (!memcmp(FilePath, "sd:/NOTSUPPORTED", 16)) {
+	if (!memcmp(FilePath, "NOTSUPPORTED", 12)) {
 		printf("\nERROR: Cart capacity not\nsupported!\n");
 		printf("\nPress [A] to abort.\n");
 		while(1) {
@@ -787,16 +786,14 @@ void DoStage2Dump() {
 	// 0x10000000 is the max possible rom size block table can setup
 	if ((stage2Header->romSize > 0) && (stage2Header->romSize <= 0x10000000))hasValidRomsize = true;
 	
-	for (int i = 0; i < 128; i++) {
-		nrio_readSector(((u32*)BlockTableBuffer + (i * 128)), (STAGE2BLOCKTABLE + (i * 0x200)));
-	}
+	for (int i = 0; i < 128; i++)nrio_readSector(((u32*)BlockTableBuffer + (i * 128)), (STAGE2BLOCKTABLE + (i * 0x200)));
 	u32 FirstBlock = BlockTableBuffer[0];
 	u32 CurrentBlock = FirstBlock;
 		
 	for (int i = 1; i < 4000; i++) {
 		if ((BlockTableBuffer[i] < 0x20000) || (BlockTableBuffer[i] == 0xFFFFFFFF) || (BlockTableBuffer[i] < CurrentBlock) || (BlockTableBuffer[i] > 0x80000000))break;
 		if ((BlockTableBuffer[i - 1] + 0x4000) != BlockTableBuffer[i])BadBlocks++;
-		if (hasValidRomsize && ((BlockTableBuffer[i] - BlockTableBuffer[0]) > stage2Header->romSize))break;
+		if (hasValidRomsize && ((BlockTableBuffer[i] - BlockTableBuffer[0]) > (stage2Header->romSize + 0x4000)))break;
 		CurrentBlock = BlockTableBuffer[i];
 		Blocks++;
 	}
@@ -1046,7 +1043,7 @@ int UtilityMenu() {
 	if(!WarningPosted)LoadTopScreenUtilitySplash();
 	int value = -1;
 	consoleClear();
-	printf("Press [A] to boot GodMode9Nrio\n");
+	if (wasDSi)printf("Press [A] to boot GodMode9Nrio\n");
 	printf("\n");
 	printf("Press [X] to build update file\n");
 	printf("\n"); 
@@ -1059,7 +1056,7 @@ int UtilityMenu() {
 		swiWaitForVBlank();
 		scanKeys();
 		switch (keysDown()){
-			case KEY_A: 	{ value = 0; } break;
+			case KEY_A: 	{ if (wasDSi)value = 0; } break;
 			case KEY_X:		{ value = 1; } break;
 			// case KEY_LEFT:		{ value = 2; } break;
 			case KEY_B:		{ value = 4; } break;
@@ -1156,8 +1153,8 @@ int MainMenu() {
 			case KEY_LEFT: 		{ value = 4; } break;
 			case KEY_RIGHT:		{ value = 5; } break;
 			case KEY_B:			{ value = 6; } break;
-			case KEY_START:		{ value = 7; } break;
-			case KEY_SELECT:	{ value = 8; } break;
+			case KEY_START:		{ if (wasDSi)value = 7; } break;
+			case KEY_SELECT:	{ if (wasDSi)value = 8; } break;
 		}
 	}
 	return value;
@@ -1263,33 +1260,40 @@ int main() {
 		if (ErrorState) {
 			consoleClear();
 			fifoSendValue32(FIFO_USER_03, 1);
+			if (!isDSiMode())systemShutDown();
 			return 0;
 		}
 		switch (MenuID) {
 			case 0: {
 				switch (MainMenu()) {
 					case 0: { if (!isCustom)DoStage2Dump(); } break;
-					case 1: { if(!isBootleg)DoUdiskDump(); } break;
+					case 1: { if (!isBootleg)DoUdiskDump(); } break;
 					case 2: { MenuID = 1; } break;
 					case 3: { MenuID = 2; } break;
 					case 4: { DoStage1Dump(); } break;
 					case 5: { DoTestDump(); } break;
 					case 6: { ErrorState = true; } break;
 					case 7: {
-						SetSCFG();
-						DoCartBoot();
+						if (wasDSi) {
+							SetSCFG();
+							DoCartBoot();
+						}
 					} break;
 					case 8: {
-						SetSCFG();
-						DoGM9iBoot();
+						if (wasDSi) {
+							SetSCFG();
+							DoGM9iBoot();
+						}
 					} break;
 				}
 			} break;
 			case 1: {
 				switch (UtilityMenu()) {
-					case 0: { 
-						SetSCFG();
-						DoGM9iBoot();
+					case 0: {
+						if (wasDSi) {
+							SetSCFG();
+							DoGM9iBoot();
+						}
 					} break;
 					case 1: { DoUpdateConvert(); } break;
 					// case 3: { DoBannerWrite(); } break;

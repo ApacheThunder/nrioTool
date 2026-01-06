@@ -22,9 +22,10 @@ void ReturntoDSiMenu() {
 		my_i2cWriteRegister(0x4A, 0x70, 0x01);		// Bootflag = Warmboot/SkipHealthSafety
 		my_i2cWriteRegister(0x4A, 0x11, 0x01);		// Reset to DSi Menu
 	} else {
-		u8 readCommand = readPowerManagement(0x10);
+		systemShutDown();
+		/*u8 readCommand = readPowerManagement(0x10);
 		readCommand |= BIT(0);
-		writePowerManagement(0x10, readCommand);
+		writePowerManagement(0x10, readCommand);*/
 	}
 }
 
@@ -46,7 +47,7 @@ int main() {
 		if (!(REG_SCFG_EXT & BIT(0)))REG_SCFG_CLK |= BIT(0);
 		UnlockedSCFG = true;
 	}
-	if (REG_SNDEXTCNT != 0) {
+	if (REG_SNDEXTCNT != 0 && isDSiMode()) {
 		my_i2cWriteRegister(0x4A, 0x12, 0x00);	// Press power-button for auto-reset
 		my_i2cWriteRegister(0x4A, 0x70, 0x01);	// Bootflag = Warmboot/SkipHealthSafety
 	}
