@@ -220,6 +220,8 @@ static volatile struct {
 };
 
 static bool live_safe_mode_plan;
+static u32 live_restore_pages;
+static const u8 *live_restore_backup;
 static u32 live_banner_pages;
 static bool live_banner_has_ecc;
 static bool live_banner_spare_only;
@@ -233,7 +235,8 @@ bool nrio_recovery_safe_mode_ready(void)
 
 uint32_t nrio_recovery_backup_pages(void)
 {
-    return live_safe_mode_plan ? safe_mode_plan.pages : live_banner_pages;
+    if (live_safe_mode_plan) return safe_mode_plan.pages;
+    return live_restore_pages ? live_restore_pages : live_banner_pages;
 }
 
 bool nrio_recovery_copy_backup_page(uint32_t page, void *main, void *spare)
@@ -260,6 +263,8 @@ void discard_live_safe_mode(void)
     if (live_safe_mode_plan) safe_mode_plan.pages = 0;
     live_safe_mode_plan = false;
     live_banner_pages = 0;
+    live_restore_pages = 0;
+    live_restore_backup = NULL;
 }
 
 static bool safe_mode_locations(const u8 *records, u32 sectors, u32 locations[2])
@@ -592,4 +597,40 @@ bool install_sd_banner(u32 pages, u8 *records, struct nrio_raw_write_error *erro
         changed = true;
     }
     return !changed || program_and_verify_block(0, pages, records, error);
+}
+
+
+bool prepare_block0_restore(u32 pages, u8 *records, const u8 *backup,
+                            struct nrio_raw_write_error *error)
+{
+    const u8 *header = main_sector(backup, 2);
+    const u8 *table = main_sector(backup, NRIO_RAW_PRIMARY_TABLE / SECTOR_SIZE);
+    u32 rom = load_word(table);
+    if ((pages != 64 && pages != 128) ||
+        load_word(header) != UINT32_C(0x42475344) ||
+        load_word(header + 0x0c) != UINT32_C(0x42475344) ||
+        rom < 0x4000 || rom == UINT32_MAX || rom % 0x4000)
+        return fail_write(error, NRIO_RAW_WRITE_SAFE_MODE_PLAN, 0, 0);
+    bool changed = false;
+    for (u32 i = 0; i < pages; ++i) {
+        u8 *record = records + i * PAGE_RECORD_SIZE;
+        if (!read_page(i, record))
+            return fail_write(error, NRIO_RAW_WRITE_READ_BLOCK, i, 0);
+        if (!equal(record, backup + i * PAGE_RECORD_SIZE, PAGE_RECORD_SIZE)) changed = true;
+    }
+    if (!changed) return true;
+
+    for (u32 i = 0; i < pages * PAGE_RECORD_SIZE; ++i) safe_mode_plan.expected[i] = records[i];
+    live_restore_backup = backup;
+    live_restore_pages = pages;
+    return true;
+}
+
+bool install_block0_restore(u32 pages, u8 *records, struct nrio_raw_write_error *error)
+{
+    if (!live_restore_backup || pages != live_restore_pages ||
+        !read_matching_snapshot(pages, records, error))
+        return false;
+    for (u32 i = 0; i < pages * PAGE_RECORD_SIZE; ++i) records[i] = live_restore_backup[i];
+    return program_and_verify_block(0, pages, records, error);
 }

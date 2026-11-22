@@ -1047,42 +1047,59 @@ static void DoSDRecovery(int action) {
 	CardInit();
 }
 
-int UtilityMenu() {
+int UtilityMenu(bool recoveryOnly = false) {
 	if(!WarningPosted)LoadTopScreenUtilitySplash();
 	int value = -1;
 	consoleClear();
-	if (wasDSi)printf("Press [A] to boot GodMode9Nrio\n");
+	if (wasDSi && !recoveryOnly)printf("Press [A] to boot GodMode9Nrio\n");
 	else printf("\n");
 	printf("\n");
-	printf("Press [X] to build update file\n");
+	printf("%s\n", recoveryOnly ? "" : "Press [X] to build update file");
 	printf("\n");
 	if (wasDSi && sdMounted) {
 		printf("Press [Y] to fix DSi safe mode\n\n"
 		       "Press [R] to install SD banner\n\n"
 		       "Press [SELECT] to save block 0\n\n"
-		       "Press [UP] to restore ARM7\n");
+		       "Press [UP] to restore ARM7\n\n"
+		       "Press [Down] to restore block 0\n");
 	} else {
-		printf("\n\n\n\n\n\n\n");
+		printf("\n\n\n\n\n\n\n\n\n");
 	}
 	printf("\n");
-	printf("\n\nPress [B] to go to main menu...\n");
+	printf("%s\n", recoveryOnly ? "Press [B] to exit" : "Press [B] to go to main menu...");
 	while(value == -1) {
 		swiWaitForVBlank();
 		scanKeys();
 		switch (keysDown()){
-			case KEY_A: 	{ if (wasDSi)value = 0; } break;
-			case KEY_X:		{ value = 1; } break;
+			case KEY_A: 	{ if (wasDSi && !recoveryOnly)value = 0; } break;
+			case KEY_X:		{ if (!recoveryOnly)value = 1; } break;
 			// case KEY_LEFT:		{ value = 2; } break;
 			case KEY_Y:		{ if (wasDSi && sdMounted)value = 2; } break;
 			case KEY_R:		{ if (wasDSi && sdMounted)value = 3; } break;
 			case KEY_SELECT:	{ if (wasDSi && sdMounted)value = 5; } break;
 			case KEY_UP:	{ if (wasDSi && sdMounted)value = 6; } break;
+			case KEY_DOWN:	{ if (wasDSi && sdMounted)value = 7; } break;
 			case KEY_B:		{ value = 4; } break;
 		}
 	}
 	return value;
 }
 
+
+static void RunSDRecoveryMenu() {
+	if (SCFGUnlocked) enableSlot1();
+	if (access("sd:/nrioFiles", F_OK) != 0) mkdir("sd:/nrioFiles", 0777);
+	for (;;) {
+		switch (UtilityMenu(true)) {
+			case 2: nrioTool_sd_recovery(0); break;
+			case 3: nrioTool_sd_recovery(1); break;
+			case 5: nrioTool_sd_recovery(2); break;
+			case 6: nrioTool_sd_recovery(3); break;
+			case 7: nrioTool_sd_recovery(4); break;
+			case 4: return;
+		}
+	}
+}
 
 int DLDIMenu() {
 	int value = -1;
@@ -1204,6 +1221,7 @@ int main() {
 	scanKeys();
 	if(keysDown() & KEY_B)autoBootCart = true;
 	wasDSi = isDSiMode();
+	bool recoveryOnly = wasDSi && (keysHeld() & KEY_L);
 	if (wasDSi && (REG_SCFG_EXT & BIT(31)))SCFGUnlocked = true;
 	defaultExceptionHandler();
 	BootSplashInit();
@@ -1217,6 +1235,12 @@ int main() {
 	sysSetCardOwner(BUS_OWNER_ARM9);
 	if (!wasDSi)sysSetCartOwner(BUS_OWNER_ARM7);
 	MountFATDevices();
+	if (recoveryOnly) {
+		if (sdMounted) RunSDRecoveryMenu();
+		else DoFATerror(true, true);
+		fifoSendValue32(FIFO_USER_03, 1);
+		return 0;
+	}
 	toncset((void*)0x02000000, 0, 0x800);
 	CardInit();
 	
@@ -1318,6 +1342,7 @@ int main() {
 					case 3: { DoSDRecovery(1); } break;
 					case 5: { DoSDRecovery(2); } break;
 					case 6: { DoSDRecovery(3); } break;
+					case 7: { DoSDRecovery(4); } break;
 					case 4: { 
 						MenuID = 0; 
 						if (!WarningPosted)LoadTopScreenSplash();
