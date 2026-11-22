@@ -106,6 +106,63 @@ static bool program_and_verify_block(u32 page, u32 pages, const u8 *records,
     return true;
 }
 
+bool read_block_snapshot(u32 page, u32 pages, u8 *records, struct nrio_raw_write_error *error)
+{
+    for (u32 i = 0; i < pages; ++i) {
+        if (!read_page(page + i, records + i * PAGE_RECORD_SIZE))
+            return fail_write(error, NRIO_RAW_WRITE_READ_BLOCK, page + i, 0);
+    }
+    return true;
+}
+
+static bool erased_bytes(const u8 *data, u32 size)
+{
+    for (u32 i = 0; i < size; ++i)
+        if (data[i] != 0xff) return false;
+    return true;
+}
+
+bool patch_block_snapshot(u32 page, u32 pages, u8 *records, const u8 *snapshot,
+                          const struct nrio_sector_patch *patches, u32 count, bool install,
+                          struct nrio_raw_write_error *error)
+{
+    if (!read_block_snapshot(page, pages, records, error)) return false;
+    for (u32 i = 0; i < pages; ++i) {
+        const u8 *record = records + i * PAGE_RECORD_SIZE;
+        if (!equal(record, snapshot + i * PAGE_RECORD_SIZE, PAGE_RECORD_SIZE))
+            return fail_write(error, NRIO_RAW_WRITE_SNAPSHOT, page + i, 0);
+        u8 marker = record[PAGE_SIZE];
+        if (page && i < 2 && marker != 0xff && marker != 0x55)
+            return fail_write(error, NRIO_RAW_WRITE_MARKER, page + i, marker);
+    }
+
+    bool changed = false;
+    for (u32 i = 0; i < count; ++i) {
+        u32 index = patches[i].lba - page * SECTORS_PER_PAGE;
+        u32 row = index / SECTORS_PER_PAGE, column = index % SECTORS_PER_PAGE;
+        u8 *record = records + row * PAGE_RECORD_SIZE;
+        u8 *data = record + column * SECTOR_SIZE;
+        if (patches[i].expected && !equal(data, patches[i].expected, SECTOR_SIZE))
+            return fail_write(error, NRIO_RAW_WRITE_SNAPSHOT, page + row, column);
+        if (equal(data, patches[i].data, SECTOR_SIZE)) continue;
+        u8 *spare = record + PAGE_SIZE + column * 16;
+        if (page + row < 8)
+            return fail_write(error, NRIO_RAW_WRITE_MARKER, page + row, column);
+
+        if (!erased_bytes(spare, 16)) {
+            u8 saved[16];
+            for (u32 j = 0; j < sizeof(saved); ++j) saved[j] = spare[j];
+            regenerate_ecc(record, column);
+            if (!equal(spare, saved, sizeof(saved)))
+                return fail_write(error, NRIO_RAW_WRITE_MARKER, page + row, column);
+        }
+        for (u32 j = 0; j < SECTOR_SIZE; ++j) data[j] = patches[i].data[j];
+        regenerate_ecc(record, column);
+        changed = true;
+    }
+    return !install || !changed || program_and_verify_block(page, pages, records, error);
+}
+
 static bool rewrite_block(u32 page, u32 pages, u32 offset, u32 count,
                           const u8 *input, u8 *records, struct nrio_raw_write_error *error,
                           enum nrio_raw_mode mode, const u8 *expected_spare)

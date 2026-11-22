@@ -1069,6 +1069,23 @@ static void DoStorageRecovery(int action) {
 	}
 }
 
+static int AdvancedRecoveryMenu() {
+	consoleClear();
+	puts("Advanced NAND recovery\n");
+	puts("Press [Y] to replace safe mode");
+	puts("Press [X] to repair stock uDisk");
+	puts("\nPress [B] to return");
+	while (true) {
+		swiWaitForVBlank();
+		scanKeys();
+		switch (keysDown()) {
+			case KEY_Y: return 6;
+			case KEY_X: return 7;
+			case KEY_B: return -1;
+		}
+	}
+}
+
 int UtilityMenu(bool recoveryOnly = false) {
 	if(!WarningPosted)LoadTopScreenUtilitySplash();
 	const bool recoveryAvailable = RecoveryStorageRoot() != nullptr;
@@ -1084,7 +1101,9 @@ int UtilityMenu(bool recoveryOnly = false) {
 		       "Press [R] to install banner\n\n"
 		       "Press [SELECT] to save block 0\n\n"
 		       "Press [UP] to restore ARM7\n\n"
-		       "Press [Down] to restore block 0\n");
+		       "Press [Down] to restore block 0\n\n"
+		       "Press [START] to check cart\n"
+		       "Hold [L+R] + [X] for advanced\n");
 	} else {
 		printf("\n\n\n\n\n\n\n\n\n");
 	}
@@ -1093,6 +1112,8 @@ int UtilityMenu(bool recoveryOnly = false) {
 	while(value == -1) {
 		swiWaitForVBlank();
 		scanKeys();
+		if (recoveryAvailable && (keysDown() & KEY_X) &&
+		    (keysHeld() & (KEY_L | KEY_R)) == (KEY_L | KEY_R)) return 9;
 		switch (keysDown()){
 			case KEY_A: 	{ if (wasDSi && !recoveryOnly)value = 0; } break;
 			case KEY_X:		{ if (!recoveryOnly)value = 1; } break;
@@ -1102,6 +1123,7 @@ int UtilityMenu(bool recoveryOnly = false) {
 			case KEY_SELECT:	{ if (recoveryAvailable)value = 5; } break;
 			case KEY_UP:	{ if (recoveryAvailable)value = 6; } break;
 			case KEY_DOWN:	{ if (recoveryAvailable)value = 7; } break;
+			case KEY_START:	{ if (recoveryAvailable)value = 8; } break;
 			case KEY_B:		{ value = 4; } break;
 		}
 	}
@@ -1119,6 +1141,11 @@ static void RunStorageRecoveryMenu(const char *root) {
 			case 5: nrioTool_sd_recovery(2, root); break;
 			case 6: nrioTool_sd_recovery(3, root); break;
 			case 7: nrioTool_sd_recovery(4, root); break;
+			case 8: nrioTool_sd_recovery(5, root); break;
+			case 9: {
+				int action = AdvancedRecoveryMenu();
+				if (action >= 0) nrioTool_sd_recovery(action, root);
+			} break;
 			case 4: return;
 		}
 	}
@@ -1369,6 +1396,11 @@ int main() {
 					case 5: { DoStorageRecovery(2); } break;
 					case 6: { DoStorageRecovery(3); } break;
 					case 7: { DoStorageRecovery(4); } break;
+					case 8: { DoStorageRecovery(5); } break;
+					case 9: {
+						int action = AdvancedRecoveryMenu();
+						if (action >= 0) DoStorageRecovery(action);
+					} break;
 					case 4: { 
 						MenuID = 0; 
 						if (!WarningPosted)LoadTopScreenSplash();

@@ -52,6 +52,31 @@ Launch `nrioTool.nds` from a Slot-2 storage device with its writable DLDI driver
 
 Hold **L** at launch to jump straight to recovery before the regular Slot-1 initialization. **SELECT** saves a block-0 backup from the N-Card in Slot-1. Recovery is available in DS mode when nrioTool mounts a read/write Slot-2 DLDI device. This avoids storing its backups on the Slot-1 cart being repaired. The Slot-2 path has been checked in software and still needs a physical DS or DS Lite test.
 
+## Check the cart
+
+Press **START** in the Utility Menu. The read-only check reports the NAND ID, detected erase geometry, and the addresses and recognized ROM types selected by the primary and secondary boot tables. The report is appended to `nrioFiles/CHECK-CART.TXT`. Press **X** while viewing the report to select a saved block-0 backup and check its file lengths, CRCs, and cart anchors. A layout match identifies the header and mapped ARM7 pattern. It cannot predict bootability.
+
+## Advanced recovery
+
+Hold **L + R** and press **X** in the Utility Menu to reveal the advanced menu. Each write path validates the target, saves all affected erase blocks before confirmation, and verifies every main and spare byte after rewriting a block. The backup reminder is advisory. These paths take their own snapshots and can start without an older backup.
+
+- **Y — Replace safe mode.** Put `safe-original.nds` and `safe-replacement.nds` in `nrioFiles` on the mounted storage. The original must match the ROM selected by the primary table byte for byte through its declared length. The replacement must fit in the existing mapping and pass header, ARM load range, and spare checks. Files up to 256 KiB are accepted. The checker keeps padding beyond the replacement's declared size on NAND and can stage changes in more than one erase block.
+- **X — Repair stock uDisk.** Extract the tagged `udisk_eng.nds` from the archived stock BIOS updater and put it in `nrioFiles`. The tool verifies the known package by size, CRC, and sector ECC. It requires an intact recognized early safe-mode route and either the contiguous stock uDisk map or an erased secondary map with blank or already matching payload sectors. The map tail must be blank or already match the stock padding and footer. It writes and verifies the payload first, updates the secondary map last, and refuses to touch block 0. [Stock updater archive](https://github.com/m4x10187/fire-card-archive/tree/ced86434054e47dcca8d4e90efd25cc92f88d688/N-Card/Dumps/recovered)
+
+The `udisk_eng.nds` data in the reference `update.nds` begins at `0x24200` and is `0xC1200` bytes long. Extract it with a NitroFS tool or use the following command with the archived updater:
+
+```sh
+dd if=update.nds of=udisk_eng.nds bs=512 skip=289 count=1545
+```
+
+The advanced actions append their diagnostic messages to `ADVANCED.TXT` and save `region-NNN/blocks.bin` and `region-NNN/SESSION.TXT` on the mounted storage. Each block snapshot includes every main and spare byte, its physical LBA, and a CRC. Use the integration project's extractor to verify the backup or extract main and packed spare files for each block:
+
+```sh
+python3 unpack_region.py region-000/blocks.bin --out extracted-blocks
+```
+
+A program or verification failure stops the operation and leaves the saved snapshots available. Neither advanced feature has passed a physical-cart test yet.
+
 ## Recover block 0 from a backup
 
 While the cart is working, press **SELECT** in the Utility Menu to save a restore-ready backup. Keep `main.bin`, `spare.bin`, and `backup.info` together in their numbered folder. Backups from earlier builds lack the metadata used by this menu.

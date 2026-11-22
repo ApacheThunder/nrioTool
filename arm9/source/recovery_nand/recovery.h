@@ -41,6 +41,13 @@ enum nrio_raw_mode {
     NRIO_RAW_SAFE_MODE_INSTALL,
     NRIO_RAW_SD_BANNER_INSTALL = 0x100,
     NRIO_RAW_SD_BLOCK0_RESTORE,
+    NRIO_RAW_SD_REGION_INSTALL,
+};
+
+struct nrio_sector_patch {
+    uint32_t lba;
+    const uint8_t *data;
+    const uint8_t *expected;
 };
 
 struct nrio_raw_table_plan {
@@ -85,6 +92,17 @@ uint32_t nrio_recovery_backup_pages(void);
 bool nrio_recovery_copy_backup_page(uint32_t page, void *main, void *spare);
 bool nrio_recovery_repair_table(const struct nrio_raw_table_plan *plan);
 bool nrio_recovery_read(uint32_t sector, uint32_t count, void *buffer);
+uint32_t nrio_recovery_pages_per_block(void);
+bool nrio_recovery_read_snapshot(uint32_t lba, void *snapshot, uint32_t bytes);
+bool nrio_recovery_patch_snapshot(uint32_t lba, const void *snapshot,
+                                  const struct nrio_sector_patch *patches, uint32_t count,
+                                  bool install);
+bool read_block_snapshot(uint32_t page, uint32_t pages, uint8_t *records,
+                         struct nrio_raw_write_error *error);
+bool patch_block_snapshot(uint32_t page, uint32_t pages, uint8_t *records, const uint8_t *snapshot,
+                          const struct nrio_sector_patch *patches, uint32_t count, bool install,
+                          struct nrio_raw_write_error *error);
+
 bool nrio_recovery_write(uint32_t sector, uint32_t count, const void *buffer);
 
 bool restore_sectors(uint32_t sector, uint32_t count, const uint8_t *buffer, uint32_t pages_per_block,

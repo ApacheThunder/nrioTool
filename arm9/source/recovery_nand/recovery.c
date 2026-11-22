@@ -49,7 +49,7 @@ bool nrio_recovery_select_mode(enum nrio_raw_mode mode)
 {
     if (!geometry.sectors || mode_locked ||
         ((unsigned)mode > NRIO_RAW_SAFE_MODE_INSTALL && mode != NRIO_RAW_SD_BANNER_INSTALL &&
-         mode != NRIO_RAW_SD_BLOCK0_RESTORE) ||
+         mode != NRIO_RAW_SD_BLOCK0_RESTORE && mode != NRIO_RAW_SD_REGION_INSTALL) ||
         (mode == NRIO_RAW_BANNER_WRITE && !banner_is_armed())) return false;
     active_mode = mode;
     mode_locked = true;
@@ -166,4 +166,37 @@ bool nrio_recovery_write(uint32_t sector, uint32_t count, const void *buffer)
     if (active_mode == NRIO_RAW_BANNER_WRITE && (sector != BANNER_LBA || count != SECTORS_PER_PAGE))
         return false;
     return restore_sectors(sector, count, buffer, geometry.pages_per_block, workspace, &write_error, active_mode);
+}
+
+uint32_t nrio_recovery_pages_per_block(void)
+{
+    return geometry.sectors ? geometry.pages_per_block : 0;
+}
+
+static bool valid_block(uint32_t lba)
+{
+    uint32_t sectors = geometry.pages_per_block * SECTORS_PER_PAGE;
+    return active_mode == NRIO_RAW_SD_REGION_INSTALL && workspace && sectors &&
+           !(lba % sectors) && valid_range(lba, sectors) && !write_error.stage;
+}
+
+bool nrio_recovery_read_snapshot(uint32_t lba, void *snapshot, uint32_t bytes)
+{
+    return snapshot && valid_block(lba) && bytes == geometry.pages_per_block * PAGE_RECORD_SIZE &&
+           read_block_snapshot(lba / SECTORS_PER_PAGE, geometry.pages_per_block, snapshot, &write_error);
+}
+
+bool nrio_recovery_patch_snapshot(uint32_t lba, const void *snapshot,
+                                  const struct nrio_sector_patch *patches, uint32_t count,
+                                  bool install)
+{
+    if (!snapshot || !patches || !count || !valid_block(lba)) return false;
+    uint32_t limit = lba + geometry.pages_per_block * SECTORS_PER_PAGE;
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t target = patches[i].lba;
+        if (!patches[i].data || target < lba || target >= limit || (i && patches[i-1].lba >= target))
+            return false;
+    }
+    return patch_block_snapshot(lba / SECTORS_PER_PAGE, geometry.pages_per_block, workspace,
+                                snapshot, patches, count, install, &write_error);
 }
