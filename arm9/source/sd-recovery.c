@@ -249,7 +249,16 @@ static bool valid_sd_safe_mode(const struct nrio_raw_info *info, const uint32_t 
             return false;
         }
     }
-    return fgetc(input) == EOF && !ferror(input);
+    // Raw ROM dumps can pad the used length to cartridge capacity.
+    uint32_t padded_size = 0x20000;
+    while (padded_size < size) padded_size *= 2;
+    uint32_t padding = padded_size - size;
+    int byte;
+    while ((byte = fgetc(input)) != EOF) {
+        if (byte != 0xff || !padding) return false;
+        --padding;
+    }
+    return !ferror(input);
 }
 
 static bool confirm_write(void)
