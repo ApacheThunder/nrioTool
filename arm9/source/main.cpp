@@ -1039,6 +1039,14 @@ void DoUdiskDump() {
 	}
 }*/
 
+extern "C" void nrioTool_sd_recovery(int action);
+
+static void DoSDRecovery(int action) {
+	if (!wasDSi || !sdMounted) return;
+	nrioTool_sd_recovery(action);
+	CardInit();
+}
+
 int UtilityMenu() {
 	if(!WarningPosted)LoadTopScreenUtilitySplash();
 	int value = -1;
@@ -1049,9 +1057,13 @@ int UtilityMenu() {
 	printf("\n"); 
 	printf("\n"); 
 	printf("\n");
-	printf("\n"); // printf("Press [Y] write banner to cart\n");
+	if (wasDSi && sdMounted) {
+		printf("[Y] Install DSi safe mode\n");
+		printf("[R] Install SD banner\n");
+		printf("[SELECT] Back up block 0\n");
+	}
 	printf("\n");
-	printf("\n\n\n\n\n\n\n\nPress [B] to go to main menu...\n");
+	printf("\n\nPress [B] to go to main menu...\n");
 	while(value == -1) {
 		swiWaitForVBlank();
 		scanKeys();
@@ -1059,6 +1071,9 @@ int UtilityMenu() {
 			case KEY_A: 	{ if (wasDSi)value = 0; } break;
 			case KEY_X:		{ value = 1; } break;
 			// case KEY_LEFT:		{ value = 2; } break;
+			case KEY_Y:		{ if (wasDSi && sdMounted)value = 2; } break;
+			case KEY_R:		{ if (wasDSi && sdMounted)value = 3; } break;
+			case KEY_SELECT:	{ if (wasDSi && sdMounted)value = 5; } break;
 			case KEY_B:		{ value = 4; } break;
 		}
 	}
@@ -1296,7 +1311,9 @@ int main() {
 						}
 					} break;
 					case 1: { DoUpdateConvert(); } break;
-					// case 3: { DoBannerWrite(); } break;
+					case 2: { DoSDRecovery(0); } break;
+					case 3: { DoSDRecovery(1); } break;
+					case 5: { DoSDRecovery(2); } break;
 					case 4: { 
 						MenuID = 0; 
 						if (!WarningPosted)LoadTopScreenSplash();

@@ -33,6 +33,18 @@ Tested:
 	3. Write default FAT image to card. An image for 16g capacity cards is included. Note that other capacities are not currently supported until FAT image jumps of them become available.
 	4. Ability to boot into bootstrap program to launch files on cart. Allows booting uDisk updator as a result so can recover a bricked cart!
 
+## DSi SD recovery
+
+On a DSi with SD mounted, open the Utility Menu with **L**. It now offers three recovery actions:
+
+- **Y — Install DSi safe mode.** Prepare the patch from the cart's own stock safe-mode ROM. An optional `sd:/nrioFiles/safe-mode.nds` must match the target ROM outside the header and ARM7 sectors and carry a recognized relocation patch.
+- **R — Install SD banner.** Read `sd:/nrioFiles/banner.bin` and update the first v1 banner copy at NAND offset `0x2000`. The input can be `0x800` bytes or a full `0x840`-byte banner with a zero-filled final `0x40` bytes. The second copy is preserved.
+- **SELECT — Back up block 0.** Save `main.bin` and packed `spare.bin` in the next `sd:/nrioFiles/block0-NNN` directory.
+
+Both install paths first save the target's block-0 backup to SD. Hold **L + R** and press **A** to write. The tool verifies the live block against the backup before erase and reads back the entire block afterward. The integration builds and has passed emulation using DS Linker dumps. DSi SD and Slot-1 writes still need a physical test.
+
+The existing devkitARM Makefiles build this branch with libnds 1.8.3 and libfat-nds 1.1.5. Set `LIBNDS` to the directory containing both legacy packages. [Integration notes](https://github.com/nextcode4u/DLDI-REA-Decomp/tree/b66838d/n-card/nrioTool)
+
 ## Credits
 lifehackerhansol: Improvements to file read logic.
 
