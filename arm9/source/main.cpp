@@ -1065,7 +1065,7 @@ int UtilityMenu() {
 		printf("\n\n\n\n\n\n\n");
 	}
 	printf("\n");
-	printf("\n\n\n\nPress [B] to go to main menu...\n");
+	printf("\n\nPress [B] to go to main menu...\n");
 	while(value == -1) {
 		swiWaitForVBlank();
 		scanKeys();
