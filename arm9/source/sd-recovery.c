@@ -36,10 +36,10 @@ static bool select_view(enum nrio_raw_mode mode, struct nrio_raw_info *info)
     return nrio_recovery_startup() && nrio_recovery_select_mode(mode) && nrio_recovery_get_info(info);
 }
 
-static bool open_backup(char *directory, char *main_path, char *spare_path)
+static bool open_backup(const char *root, char *directory, char *main_path, char *spare_path)
 {
     for (int i = 0; i < BACKUP_LIMIT; ++i) {
-        snprintf(directory, 40, "sd:/nrioFiles/block0-%03d", i);
+        snprintf(directory, 40, "%s/block0-%03d", root, i);
         if (mkdir(directory, 0777) == 0) {
             snprintf(main_path, 56, "%s/main.bin", directory);
             snprintf(spare_path, 56, "%s/spare.bin", directory);
@@ -85,7 +85,7 @@ static bool write_chunk(FILE *file, const uint8_t *data, size_t size, uint32_t *
     return true;
 }
 
-static bool save_backup(bool prepared, const struct nrio_raw_info *initial)
+static bool save_backup(const char *root, bool prepared, const struct nrio_raw_info *initial)
 {
     struct backup_info info = {
         .nand_id = initial->nand_id,
@@ -98,7 +98,7 @@ static bool save_backup(bool prepared, const struct nrio_raw_info *initial)
     memcpy(info.tag, backup_tag, sizeof(info.tag));
 
     char directory[40], main_path[56], spare_path[56], info_path[56];
-    if (!open_backup(directory, main_path, spare_path)) return false;
+    if (!open_backup(root, directory, main_path, spare_path)) return false;
     snprintf(info_path, sizeof(info_path), "%s/backup.info", directory);
     FILE *main = fopen(main_path, "wb");
     FILE *spare = fopen(spare_path, "wb");
@@ -142,9 +142,9 @@ static int next_backup(const bool available[BACKUP_LIMIT], int index, int direct
     return -1;
 }
 
-static int choose_backup(void)
+static int choose_backup(const char *root)
 {
-    DIR *directory = opendir("sd:/nrioFiles");
+    DIR *directory = opendir(root);
     if (!directory) return -1;
     static bool available[BACKUP_LIMIT];
     memset(available, 0, sizeof(available));
@@ -155,18 +155,18 @@ static int choose_backup(void)
         if (digits[0] < '0' || digits[0] > '9' || digits[1] < '0' || digits[1] > '9' ||
             digits[2] < '0' || digits[2] > '9') continue;
         char path[48];
-        snprintf(path, sizeof(path), "sd:/nrioFiles/block0-%.3s/backup.info", digits);
+        snprintf(path, sizeof(path), "%s/block0-%.3s/backup.info", root, digits);
         if (access(path, F_OK) == 0) available[atoi(digits)] = true;
     }
     closedir(directory);
     int index = next_backup(available, 0, -1);
     if (index < 0) {
-        puts("No restore-ready SD backups.\nUse SELECT on a working cart.");
+        puts("No restore-ready backups.\nUse SELECT on a working cart.");
         return -1;
     }
     for (;;) {
         consoleClear();
-        printf("Restore block 0 from SD\n\nBackup: block0-%03d\n\nLeft / Right: choose backup\nA: inspect   B: cancel\n", index);
+        printf("Restore block 0\n\nBackup: block0-%03d\n\nLeft / Right: choose backup\nA: inspect   B: cancel\n", index);
         uint32_t down;
         do {
             swiWaitForVBlank();
@@ -179,12 +179,12 @@ static int choose_backup(void)
     }
 }
 
-static bool load_backup_image(int index, const struct nrio_raw_info *live, uint32_t *bytes,
+static bool load_backup_image(const char *root, int index, const struct nrio_raw_info *live, uint32_t *bytes,
                               uint8_t anchors[2][SECTOR])
 {
     char path[56];
     struct backup_info info;
-    snprintf(path, sizeof(path), "sd:/nrioFiles/block0-%03d/backup.info", index);
+    snprintf(path, sizeof(path), "%s/block0-%03d/backup.info", root, index);
     FILE *file = fopen(path, "rb");
     if (!file) return false;
     bool ok = fread(&info, 1, sizeof(info), file) == sizeof(info) &&
@@ -198,9 +198,9 @@ static bool load_backup_image(int index, const struct nrio_raw_info *live, uint3
     if (!informative_anchors(info.anchors) || !read_anchors(current) ||
         memcmp(current, info.anchors, sizeof(current))) return false;
 
-    snprintf(path, sizeof(path), "sd:/nrioFiles/block0-%03d/main.bin", index);
+    snprintf(path, sizeof(path), "%s/block0-%03d/main.bin", root, index);
     FILE *main = fopen(path, "rb");
-    snprintf(path, sizeof(path), "sd:/nrioFiles/block0-%03d/spare.bin", index);
+    snprintf(path, sizeof(path), "%s/block0-%03d/spare.bin", root, index);
     FILE *spare = fopen(path, "rb");
     ok = main && spare;
     uint32_t main_crc = UINT32_MAX, spare_crc = UINT32_MAX;
@@ -272,7 +272,7 @@ static void show_write_error(void)
            (unsigned long)error.stage, (unsigned long)error.page, (unsigned long)error.detail);
 }
 
-static void install_safe_mode(const struct nrio_raw_info *info)
+static void install_safe_mode(const char *root, const struct nrio_raw_info *info)
 {
     uint32_t sectors[2];
     if (!nrio_recovery_prepare_safe_mode(sectors)) {
@@ -280,7 +280,9 @@ static void install_safe_mode(const struct nrio_raw_info *info)
         show_write_error();
         return;
     }
-    FILE *input = fopen("sd:/nrioFiles/safe-mode.nds", "rb");
+    char path[56];
+    snprintf(path, sizeof(path), "%s/safe-mode.nds", root);
+    FILE *input = fopen(path, "rb");
     if (input) {
         bool valid = valid_sd_safe_mode(info, sectors, input);
         if (fclose(input)) valid = false;
@@ -294,7 +296,7 @@ static void install_safe_mode(const struct nrio_raw_info *info)
         return;
     }
     printf("Safe-mode sectors %lX and %lX.\n", (unsigned long)sectors[0], (unsigned long)sectors[1]);
-    if (!save_backup(true, info)) {
+    if (!save_backup(root, true, info)) {
         puts("Could not save the block-0 backup.");
         return;
     }
@@ -305,11 +307,13 @@ static void install_safe_mode(const struct nrio_raw_info *info)
     }
 }
 
-static void install_banner(const struct nrio_raw_info *info)
+static void install_banner(const char *root, const struct nrio_raw_info *info)
 {
-    FILE *input = fopen("sd:/nrioFiles/banner.bin", "rb");
+    char path[56];
+    snprintf(path, sizeof(path), "%s/banner.bin", root);
+    FILE *input = fopen(path, "rb");
     if (!input) {
-        puts("Put a v1 banner at\nsd:/nrioFiles/banner.bin.");
+        printf("Put a v1 banner at\n%s\n", path);
         return;
     }
     bool valid = fread(page_data, 1, PAGE, input) == PAGE;
@@ -324,7 +328,7 @@ static void install_banner(const struct nrio_raw_info *info)
         show_write_error();
         return;
     }
-    if (!save_backup(true, info)) {
+    if (!save_backup(root, true, info)) {
         puts("Could not save the block-0 backup.");
         return;
     }
@@ -336,14 +340,14 @@ static void install_banner(const struct nrio_raw_info *info)
     }
 }
 
-static void restore_banner_spare(const struct nrio_raw_info *info)
+static void restore_banner_spare(const char *root, const struct nrio_raw_info *info)
 {
     if (!nrio_recovery_prepare_banner_spare_restore()) {
         puts("No matching banner ECC damage.");
         show_write_error();
         return;
     }
-    if (!save_backup(true, info)) {
+    if (!save_backup(root, true, info)) {
         puts("Could not save the block-0 backup.");
         return;
     }
@@ -355,13 +359,13 @@ static void restore_banner_spare(const struct nrio_raw_info *info)
     }
 }
 
-static void restore_saved_block0(const struct nrio_raw_info *info)
+static void restore_saved_block0(const char *root, const struct nrio_raw_info *info)
 {
-    int index = choose_backup();
+    int index = choose_backup(root);
     if (index < 0) return;
     uint32_t bytes;
     uint8_t anchors[2][SECTOR];
-    if (!load_backup_image(index, info, &bytes, anchors)) {
+    if (!load_backup_image(root, index, info, &bytes, anchors)) {
         puts("Backup integrity or cart\nmatch check failed.");
         return;
     }
@@ -374,7 +378,7 @@ static void restore_saved_block0(const struct nrio_raw_info *info)
         puts("Block 0 already matches backup.");
         return;
     }
-    if (!save_backup(true, info)) {
+    if (!save_backup(root, true, info)) {
         puts("Could not save current block 0.");
         return;
     }
@@ -391,7 +395,7 @@ static void restore_saved_block0(const struct nrio_raw_info *info)
     }
 }
 
-void nrioTool_sd_recovery(int action)
+void nrioTool_sd_recovery(int action, const char *root)
 {
     struct nrio_raw_info info;
     consoleClear();
@@ -401,17 +405,17 @@ void nrioTool_sd_recovery(int action)
     if (!select_view(mode, &info)) {
         puts("Could not probe Slot-1 NAND.");
     } else if (action == 2) {
-        if (!save_backup(false, &info)) puts("Could not save the block-0 backup.");
+        if (!save_backup(root, false, &info)) puts("Could not save the block-0 backup.");
     } else if (!nrio_recovery_bind_workspace(workspace, sizeof(workspace))) {
         puts("Could not reserve the erase buffer.");
     } else if (action == 4) {
-        restore_saved_block0(&info);
+        restore_saved_block0(root, &info);
     } else if (action == 3) {
-        restore_banner_spare(&info);
+        restore_banner_spare(root, &info);
     } else if (action == 1) {
-        install_banner(&info);
+        install_banner(root, &info);
     } else {
-        install_safe_mode(&info);
+        install_safe_mode(root, &info);
     }
     nrio_recovery_shutdown();
     puts("\nPress A to return.");

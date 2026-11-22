@@ -196,6 +196,13 @@ void CardInit(bool Silent = true, bool SkipSlotReset = false) {
 	}
 }
 
+static const DISC_INTERFACE *GetSlot2Storage() {
+	const DISC_INTERFACE *storage = dldiGetInternal();
+	const u32 required = FEATURE_SLOT_GBA | FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE;
+	const u32 mask = required | FEATURE_SLOT_NDS;
+	return storage && (storage->features & mask) == required ? storage : nullptr;
+}
+
 void MountFATDevices(bool mountSD = true) {
 	if (wasDSi) {
 		if (mountSD && !sdMounted) {
@@ -212,8 +219,15 @@ void MountFATDevices(bool mountSD = true) {
 			if (!nitroFSMounted)nitroFSMounted = nitroFSInit("sd:/homebrew/nrioTool.nds");
 		}
 	} else {
-		// if (!fatMounted)fatMounted = fatMountSimple("nrio", &io_nrio_);
-		if (!fatMounted)fatMounted = fatInitDefault();
+		if (!fatMounted) {
+			const DISC_INTERFACE *slot2 = GetSlot2Storage();
+			if (slot2) {
+				sysSetCartOwner(BUS_OWNER_ARM9);
+				fatMounted = fatMountSimple("fat", slot2);
+			} else {
+				fatMounted = fatInitDefault();
+			}
+		}
 		if (fatMounted && !nitroFSMounted) {
 			nitroFSMounted = nitroFSInit("fat:/nrioTool.nds");
 			if (!nitroFSMounted)nitroFSMounted = nitroFSInit("fat:/nrioTool.nds");
@@ -1039,16 +1053,23 @@ void DoUdiskDump() {
 	}
 }*/
 
-extern "C" void nrioTool_sd_recovery(int action);
+extern "C" void nrioTool_sd_recovery(int action, const char *root);
 
-static void DoSDRecovery(int action) {
-	if (!wasDSi || !sdMounted) return;
-	nrioTool_sd_recovery(action);
-	CardInit();
+static const char *RecoveryStorageRoot() {
+	if (wasDSi) return sdMounted ? "sd:/nrioFiles" : nullptr;
+	return fatMounted && GetSlot2Storage() ? "fat:/nrioFiles" : nullptr;
+}
+
+static void DoStorageRecovery(int action) {
+	if (const char *root = RecoveryStorageRoot()) {
+		nrioTool_sd_recovery(action, root);
+		CardInit();
+	}
 }
 
 int UtilityMenu(bool recoveryOnly = false) {
 	if(!WarningPosted)LoadTopScreenUtilitySplash();
+	const bool recoveryAvailable = RecoveryStorageRoot() != nullptr;
 	int value = -1;
 	consoleClear();
 	if (wasDSi && !recoveryOnly)printf("Press [A] to boot GodMode9Nrio\n");
@@ -1056,9 +1077,9 @@ int UtilityMenu(bool recoveryOnly = false) {
 	printf("\n");
 	printf("%s\n", recoveryOnly ? "" : "Press [X] to build update file");
 	printf("\n");
-	if (wasDSi && sdMounted) {
+	if (recoveryAvailable) {
 		printf("Press [Y] to fix DSi safe mode\n\n"
-		       "Press [R] to install SD banner\n\n"
+		       "Press [R] to install banner\n\n"
 		       "Press [SELECT] to save block 0\n\n"
 		       "Press [UP] to restore ARM7\n\n"
 		       "Press [Down] to restore block 0\n");
@@ -1074,11 +1095,11 @@ int UtilityMenu(bool recoveryOnly = false) {
 			case KEY_A: 	{ if (wasDSi && !recoveryOnly)value = 0; } break;
 			case KEY_X:		{ if (!recoveryOnly)value = 1; } break;
 			// case KEY_LEFT:		{ value = 2; } break;
-			case KEY_Y:		{ if (wasDSi && sdMounted)value = 2; } break;
-			case KEY_R:		{ if (wasDSi && sdMounted)value = 3; } break;
-			case KEY_SELECT:	{ if (wasDSi && sdMounted)value = 5; } break;
-			case KEY_UP:	{ if (wasDSi && sdMounted)value = 6; } break;
-			case KEY_DOWN:	{ if (wasDSi && sdMounted)value = 7; } break;
+			case KEY_Y:		{ if (recoveryAvailable)value = 2; } break;
+			case KEY_R:		{ if (recoveryAvailable)value = 3; } break;
+			case KEY_SELECT:	{ if (recoveryAvailable)value = 5; } break;
+			case KEY_UP:	{ if (recoveryAvailable)value = 6; } break;
+			case KEY_DOWN:	{ if (recoveryAvailable)value = 7; } break;
 			case KEY_B:		{ value = 4; } break;
 		}
 	}
@@ -1086,16 +1107,16 @@ int UtilityMenu(bool recoveryOnly = false) {
 }
 
 
-static void RunSDRecoveryMenu() {
+static void RunStorageRecoveryMenu(const char *root) {
 	if (SCFGUnlocked) enableSlot1();
-	if (access("sd:/nrioFiles", F_OK) != 0) mkdir("sd:/nrioFiles", 0777);
+	if (access(root, F_OK) != 0) mkdir(root, 0777);
 	for (;;) {
 		switch (UtilityMenu(true)) {
-			case 2: nrioTool_sd_recovery(0); break;
-			case 3: nrioTool_sd_recovery(1); break;
-			case 5: nrioTool_sd_recovery(2); break;
-			case 6: nrioTool_sd_recovery(3); break;
-			case 7: nrioTool_sd_recovery(4); break;
+			case 2: nrioTool_sd_recovery(0, root); break;
+			case 3: nrioTool_sd_recovery(1, root); break;
+			case 5: nrioTool_sd_recovery(2, root); break;
+			case 6: nrioTool_sd_recovery(3, root); break;
+			case 7: nrioTool_sd_recovery(4, root); break;
 			case 4: return;
 		}
 	}
@@ -1221,7 +1242,7 @@ int main() {
 	scanKeys();
 	if(keysDown() & KEY_B)autoBootCart = true;
 	wasDSi = isDSiMode();
-	bool recoveryOnly = wasDSi && (keysHeld() & KEY_L);
+	bool recoveryOnly = (keysHeld() & KEY_L) != 0;
 	if (wasDSi && (REG_SCFG_EXT & BIT(31)))SCFGUnlocked = true;
 	defaultExceptionHandler();
 	BootSplashInit();
@@ -1234,13 +1255,16 @@ int main() {
 	
 	sysSetCardOwner(BUS_OWNER_ARM9);
 	if (!wasDSi)sysSetCartOwner(BUS_OWNER_ARM7);
-	MountFATDevices();
 	if (recoveryOnly) {
-		if (sdMounted) RunSDRecoveryMenu();
-		else DoFATerror(true, true);
+		if (wasDSi || GetSlot2Storage()) MountFATDevices();
+		if (const char *root = RecoveryStorageRoot()) RunStorageRecoveryMenu(root);
+		else if (wasDSi) DoFATerror(true, true);
+		else DoError("Recovery needs writable Slot-2\n"
+		             "storage and its DLDI driver.");
 		fifoSendValue32(FIFO_USER_03, 1);
 		return 0;
 	}
+	MountFATDevices();
 	toncset((void*)0x02000000, 0, 0x800);
 	CardInit();
 	
@@ -1338,11 +1362,11 @@ int main() {
 						}
 					} break;
 					case 1: { DoUpdateConvert(); } break;
-					case 2: { DoSDRecovery(0); } break;
-					case 3: { DoSDRecovery(1); } break;
-					case 5: { DoSDRecovery(2); } break;
-					case 6: { DoSDRecovery(3); } break;
-					case 7: { DoSDRecovery(4); } break;
+					case 2: { DoStorageRecovery(0); } break;
+					case 3: { DoStorageRecovery(1); } break;
+					case 5: { DoStorageRecovery(2); } break;
+					case 6: { DoStorageRecovery(3); } break;
+					case 7: { DoStorageRecovery(4); } break;
 					case 4: { 
 						MenuID = 0; 
 						if (!WarningPosted)LoadTopScreenSplash();
