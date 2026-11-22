@@ -221,6 +221,7 @@ static volatile struct {
 
 static bool live_safe_mode_plan;
 static u32 live_banner_pages;
+static bool live_banner_has_ecc;
 static u8 live_banner[PAGE_SIZE];
 
 bool nrio_recovery_safe_mode_ready(void)
@@ -468,6 +469,33 @@ bool restore_safe_mode(u32 pages, u8 *records, struct nrio_raw_write_error *erro
 }
 
 
+static bool banner_spare_format(const u8 *records, bool *has_ecc)
+{
+    const u8 *record = records + BANNER_PAGE * PAGE_RECORD_SIZE;
+    const u8 *spare = record + PAGE_SIZE;
+    const u8 *page1 = records + PAGE_RECORD_SIZE + PAGE_SIZE;
+    const u8 *page5 = records + 5 * PAGE_RECORD_SIZE + PAGE_SIZE;
+    *has_ecc = false;
+    if (load_word(spare) == UINT32_C(0xe3a00000) &&
+        load_word(spare + 4) == UINT32_C(0xe59f1020) &&
+        (equal(spare, page1, SPARE_SIZE) || equal(spare, page5, SPARE_SIZE)))
+        return true;
+
+    bool blank = true;
+    for (unsigned i = 0; i < SPARE_SIZE; ++i) {
+        if (spare[i] != 0xff) blank = false;
+    }
+    if (blank) return true;
+
+    // Rewrite ECC only when the existing triplets match this page's main data.
+    u8 expected[PAGE_RECORD_SIZE];
+    for (unsigned i = 0; i < PAGE_RECORD_SIZE; ++i) expected[i] = record[i];
+    for (unsigned column = 0; column < SECTORS_PER_PAGE; ++column)
+        regenerate_ecc(expected, column);
+    *has_ecc = equal(expected + PAGE_SIZE, spare, SPARE_SIZE);
+    return *has_ecc;
+}
+
 // Fire Line and DS Linker store two 0x800-byte copies. Their v1 banner
 // CRCs cover the copied bytes followed by 0x40 logical zero bytes.
 bool prepare_sd_banner(u32 pages, u8 *records, const u8 *banner, struct nrio_raw_write_error *error)
@@ -490,6 +518,8 @@ bool prepare_sd_banner(u32 pages, u8 *records, const u8 *banner, struct nrio_raw
     for (unsigned i = 0; i < 0x40; ++i) crc_data[PAGE_SIZE - 0x20 + i] = 0;
     if (nrio_safe_mode_crc16(crc_data, sizeof(crc_data)) != (banner[2] | banner[3] << 8))
         return fail_write(error, NRIO_RAW_WRITE_SAFE_MODE_PLAN, BANNER_PAGE, 0);
+    if (!banner_spare_format(records, &live_banner_has_ecc))
+        return fail_write(error, NRIO_RAW_WRITE_MARKER, BANNER_PAGE, 0);
     for (u32 i = 0; i < pages * PAGE_RECORD_SIZE; ++i) safe_mode_plan.expected[i] = records[i];
     for (u32 i = 0; i < PAGE_SIZE; ++i) live_banner[i] = banner[i];
     live_banner_pages = pages;
@@ -506,7 +536,7 @@ bool install_sd_banner(u32 pages, u8 *records, struct nrio_raw_write_error *erro
         unsigned offset = column * SECTOR_SIZE;
         if (equal(record + offset, live_banner + offset, SECTOR_SIZE)) continue;
         for (unsigned i = 0; i < SECTOR_SIZE; ++i) record[offset + i] = live_banner[offset + i];
-        regenerate_ecc(record, column);
+        if (live_banner_has_ecc) regenerate_ecc(record, column);
         changed = true;
     }
     return !changed || program_and_verify_block(0, pages, records, error);

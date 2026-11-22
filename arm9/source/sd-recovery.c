@@ -173,7 +173,8 @@ static void install_banner(const struct nrio_raw_info *info)
     }
     if (fclose(input)) valid = false;
     if (!valid || !nrio_recovery_prepare_sd_banner(page_data)) {
-        puts("Banner size, format, CRC, or\ntarget layout check failed.");
+        puts("Banner size, CRC, or target\nspare format check failed.");
+        show_write_error();
         return;
     }
     if (!save_backup(true, info)) {
