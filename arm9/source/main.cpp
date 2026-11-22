@@ -554,6 +554,7 @@ void DoImageRestore() {
 			if(keysDown() & KEY_A)return;
 		}
 	}
+	puts("Back up this cart before writes\nwhenever possible.\n");
 	printf("\nPress [A] to continue.\n\n");
 	printf("Press [B] to abort.\n");
 	while(1) {
@@ -636,6 +637,7 @@ void DoSector0Restore() {
 	consoleClear();
 	DoWait(60);
 	printf("About to write FAT sector 0.\n\n");
+	puts("Back up this cart before writes\nwhenever possible.\n");
 	printf("Press [A] to continue.\n\n");
 	printf("Press [B] to abort.\n");
 	while(1) {

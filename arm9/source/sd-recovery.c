@@ -254,7 +254,10 @@ static bool valid_sd_safe_mode(const struct nrio_raw_info *info, const uint32_t 
 
 static bool confirm_write(void)
 {
-    printf("\nHold L + R and press A to write.\nB: cancel\n");
+    puts("\nBack up this cart before writes\n"
+         "whenever possible.\n"
+         "\nHold L + R and press A to write.\n"
+         "B: cancel");
     for (;;) {
         swiWaitForVBlank();
         scanKeys();
