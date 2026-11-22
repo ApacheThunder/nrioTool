@@ -1052,19 +1052,20 @@ int UtilityMenu() {
 	int value = -1;
 	consoleClear();
 	if (wasDSi)printf("Press [A] to boot GodMode9Nrio\n");
+	else printf("\n");
 	printf("\n");
 	printf("Press [X] to build update file\n");
-	printf("\n"); 
-	printf("\n"); 
 	printf("\n");
 	if (wasDSi && sdMounted) {
-		printf("[Y] Install DSi safe mode\n");
-		printf("[R] Install SD banner\n");
-		printf("[SELECT] Back up block 0\n");
-		printf("[UP] Restore banner ARM7\n");
+		printf("Press [Y] to fix DSi safe mode\n\n"
+		       "Press [R] to install SD banner\n\n"
+		       "Press [SELECT] to save block 0\n\n"
+		       "Press [UP] to restore ARM7\n");
+	} else {
+		printf("\n\n\n\n\n\n\n");
 	}
 	printf("\n");
-	printf("\n\nPress [B] to go to main menu...\n");
+	printf("\n\n\n\nPress [B] to go to main menu...\n");
 	while(value == -1) {
 		swiWaitForVBlank();
 		scanKeys();
