@@ -98,6 +98,13 @@ bool nrio_recovery_prepare_sd_banner(const uint8_t banner[2048])
     return prepare_sd_banner(geometry.pages_per_block, workspace, banner, &write_error);
 }
 
+bool nrio_recovery_prepare_banner_spare_restore(void)
+{
+    if (active_mode != NRIO_RAW_SD_BANNER_INSTALL || !workspace ||
+        write_error.stage != NRIO_RAW_WRITE_NONE) return false;
+    return prepare_banner_spare_restore(geometry.pages_per_block, workspace, &write_error);
+}
+
 bool nrio_recovery_install_sd_banner(void)
 {
     if (active_mode != NRIO_RAW_SD_BANNER_INSTALL || !workspace ||

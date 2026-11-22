@@ -35,13 +35,14 @@ Tested:
 
 ## DSi SD recovery
 
-On a DSi with SD mounted, open the Utility Menu with **L**. It now offers three recovery actions:
+On a DSi with SD mounted, open the Utility Menu with **L**. It now offers these recovery actions:
 
 - **Y — Install DSi safe mode.** Prepare the patch from the cart's own stock safe-mode ROM. An optional `sd:/nrioFiles/safe-mode.nds` must match the target ROM outside the header and ARM7 sectors and carry a recognized relocation patch.
 - **R — Install SD banner.** Read `sd:/nrioFiles/banner.bin` and update the first v1 banner copy at NAND offset `0x2000`. The input can be `0x800` bytes or a full `0x840`-byte banner with a zero-filled final `0x40` bytes. The second banner copy and recognized ARM7 boot records in the spare area are preserved. ECC is regenerated only for existing ECC-format banner records.
 - **SELECT — Back up block 0.** Save `main.bin` and packed `spare.bin` in the next `sd:/nrioFiles/block0-NNN` directory.
+- **UP — Restore banner ARM7.** Repair page 4's spare record if the two intact ARM7 copies from pages 1 and 5 agree and the live page-4 damage matches the old banner writer's ECC pattern. The current banner and all other records are preserved. The tool saves a block-0 backup before confirmation.
 
-Both install paths first save the target's block-0 backup to SD. Hold **L + R** and press **A** to write. The tool verifies the live block against the backup before erase and reads back the entire block afterward. Apache confirmed SD backup export and banner display on hardware with the initial build. This was a different cart from the verified DS Linker. It white-screened afterward and had no pre-write boot test. Apache suspected an existing uDisk problem. The revised banner writer preserves the ARM7 spare record in emulation and still needs hardware testing.
+The install and restore paths first save the target's block-0 backup to SD. Hold **L + R** and press **A** to write. The tool verifies the live block against the backup before erase and reads back the entire block afterward. Apache confirmed SD backup export and banner display on hardware with the initial build. This was a different cart from the verified DS Linker. It white-screened afterward and had no pre-write boot test. Apache suspected an existing uDisk problem. The revised banner writer preserves the ARM7 spare record in emulation and still needs hardware testing. The ARM7 restore has passed emulation against the ExpressCard's actual damaged ROM bytes.
 
 The existing devkitARM Makefiles build this branch with libnds 1.8.3 and libfat-nds 1.1.5. Set `LIBNDS` to the directory containing both legacy packages. [Integration notes](https://github.com/nextcode4u/DLDI-REA-Decomp/tree/b66838d/n-card/nrioTool)
 

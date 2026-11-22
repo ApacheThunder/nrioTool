@@ -222,6 +222,8 @@ static volatile struct {
 static bool live_safe_mode_plan;
 static u32 live_banner_pages;
 static bool live_banner_has_ecc;
+static bool live_banner_spare_only;
+static u8 live_banner_spare[SPARE_SIZE];
 static u8 live_banner[PAGE_SIZE];
 
 bool nrio_recovery_safe_mode_ready(void)
@@ -498,7 +500,16 @@ static bool banner_spare_format(const u8 *records, bool *has_ecc)
 
 // Fire Line and DS Linker store two 0x800-byte copies. Their v1 banner
 // CRCs cover the copied bytes followed by 0x40 logical zero bytes.
-bool prepare_sd_banner(u32 pages, u8 *records, const u8 *banner, struct nrio_raw_write_error *error)
+static bool valid_v1_banner(const u8 *banner)
+{
+    if (banner[0] != 1 || banner[1]) return false;
+    u8 crc_data[0x820];
+    for (unsigned i = 0; i < PAGE_SIZE - 0x20; ++i) crc_data[i] = banner[i + 0x20];
+    for (unsigned i = 0; i < 0x40; ++i) crc_data[PAGE_SIZE - 0x20 + i] = 0;
+    return nrio_safe_mode_crc16(crc_data, sizeof(crc_data)) == (banner[2] | banner[3] << 8);
+}
+
+static bool read_banner_block(u32 pages, u8 *records, struct nrio_raw_write_error *error)
 {
     if (pages != 64 && pages != 128)
         return fail_write(error, NRIO_RAW_WRITE_SAFE_MODE_PLAN, 0, pages);
@@ -507,22 +518,59 @@ bool prepare_sd_banner(u32 pages, u8 *records, const u8 *banner, struct nrio_raw
             return fail_write(error, NRIO_RAW_WRITE_READ_BLOCK, i, 0);
     }
     const u8 *header = main_sector(records, 2);
-    const u8 *current = main_sector(records, BANNER_LBA);
     if (load_word(header) != UINT32_C(0x42475344) ||
-        load_word(header + 0x0c) != UINT32_C(0x42475344) ||
-        current[0] != 1 || current[1] || banner[0] != 1 || banner[1])
+        load_word(header + 0x0c) != UINT32_C(0x42475344))
         return fail_write(error, NRIO_RAW_WRITE_SAFE_MODE_PLAN, BANNER_PAGE, 0);
+    return true;
+}
 
-    u8 crc_data[0x820];
-    for (unsigned i = 0; i < PAGE_SIZE - 0x20; ++i) crc_data[i] = banner[i + 0x20];
-    for (unsigned i = 0; i < 0x40; ++i) crc_data[PAGE_SIZE - 0x20 + i] = 0;
-    if (nrio_safe_mode_crc16(crc_data, sizeof(crc_data)) != (banner[2] | banner[3] << 8))
+static void stage_banner_snapshot(u32 pages, const u8 *records, bool spare_only)
+{
+    for (u32 i = 0; i < pages * PAGE_RECORD_SIZE; ++i) safe_mode_plan.expected[i] = records[i];
+    live_banner_spare_only = spare_only;
+    live_banner_pages = pages;
+}
+
+bool prepare_sd_banner(u32 pages, u8 *records, const u8 *banner, struct nrio_raw_write_error *error)
+{
+    if (!read_banner_block(pages, records, error)) return false;
+    const u8 *current = main_sector(records, BANNER_LBA);
+    if (current[0] != 1 || current[1] || !valid_v1_banner(banner))
         return fail_write(error, NRIO_RAW_WRITE_SAFE_MODE_PLAN, BANNER_PAGE, 0);
     if (!banner_spare_format(records, &live_banner_has_ecc))
         return fail_write(error, NRIO_RAW_WRITE_MARKER, BANNER_PAGE, 0);
-    for (u32 i = 0; i < pages * PAGE_RECORD_SIZE; ++i) safe_mode_plan.expected[i] = records[i];
     for (u32 i = 0; i < PAGE_SIZE; ++i) live_banner[i] = banner[i];
-    live_banner_pages = pages;
+    stage_banner_snapshot(pages, records, false);
+    return true;
+}
+
+bool prepare_banner_spare_restore(u32 pages, u8 *records, struct nrio_raw_write_error *error)
+{
+    if (!read_banner_block(pages, records, error)) return false;
+    const u8 *record = records + BANNER_PAGE * PAGE_RECORD_SIZE;
+    const u8 *current = record + PAGE_SIZE;
+    const u8 *page1 = records + PAGE_RECORD_SIZE + PAGE_SIZE;
+    const u8 *page5 = records + 5 * PAGE_RECORD_SIZE + PAGE_SIZE;
+    if (!nrio_safe_mode_handoff(page1) || !equal(page1, page5, SPARE_SIZE) ||
+        !valid_v1_banner(record))
+        return fail_write(error, NRIO_RAW_WRITE_MARKER, BANNER_PAGE, 0);
+    if (equal(current, page1, SPARE_SIZE))
+        return fail_write(error, NRIO_RAW_WRITE_MARKER, BANNER_PAGE, 1);
+
+    // The first banner build regenerated ECC only for changed main sectors.
+    // Both untouched and regenerated chunks must match exactly.
+    u8 damaged[PAGE_RECORD_SIZE];
+    for (unsigned i = 0; i < PAGE_SIZE; ++i) damaged[i] = record[i];
+    for (unsigned i = 0; i < SPARE_SIZE; ++i) damaged[PAGE_SIZE + i] = page1[i];
+    for (unsigned column = 0; column < SECTORS_PER_PAGE; ++column) {
+        unsigned offset = column * 16;
+        regenerate_ecc(damaged, column);
+        if (!equal(current + offset, page1 + offset, 16) &&
+            !equal(current + offset, damaged + PAGE_SIZE + offset, 16))
+            return fail_write(error, NRIO_RAW_WRITE_MARKER, BANNER_PAGE, 0);
+    }
+    for (unsigned i = 0; i < SPARE_SIZE; ++i) live_banner_spare[i] = page1[i];
+    stage_banner_snapshot(pages, records, true);
     return true;
 }
 
@@ -531,6 +579,10 @@ bool install_sd_banner(u32 pages, u8 *records, struct nrio_raw_write_error *erro
     if (!live_banner_pages || pages != live_banner_pages ||
         !read_matching_snapshot(pages, records, error)) return false;
     u8 *record = records + BANNER_PAGE * PAGE_RECORD_SIZE;
+    if (live_banner_spare_only) {
+        for (unsigned i = 0; i < SPARE_SIZE; ++i) record[PAGE_SIZE + i] = live_banner_spare[i];
+        return program_and_verify_block(0, pages, records, error);
+    }
     bool changed = false;
     for (unsigned column = 0; column < SECTORS_PER_PAGE; ++column) {
         unsigned offset = column * SECTOR_SIZE;

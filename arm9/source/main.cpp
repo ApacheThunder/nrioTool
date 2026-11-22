@@ -1061,6 +1061,7 @@ int UtilityMenu() {
 		printf("[Y] Install DSi safe mode\n");
 		printf("[R] Install SD banner\n");
 		printf("[SELECT] Back up block 0\n");
+		printf("[UP] Restore banner ARM7\n");
 	}
 	printf("\n");
 	printf("\n\nPress [B] to go to main menu...\n");
@@ -1074,6 +1075,7 @@ int UtilityMenu() {
 			case KEY_Y:		{ if (wasDSi && sdMounted)value = 2; } break;
 			case KEY_R:		{ if (wasDSi && sdMounted)value = 3; } break;
 			case KEY_SELECT:	{ if (wasDSi && sdMounted)value = 5; } break;
+			case KEY_UP:	{ if (wasDSi && sdMounted)value = 6; } break;
 			case KEY_B:		{ value = 4; } break;
 		}
 	}
@@ -1314,6 +1316,7 @@ int main() {
 					case 2: { DoSDRecovery(0); } break;
 					case 3: { DoSDRecovery(1); } break;
 					case 5: { DoSDRecovery(2); } break;
+					case 6: { DoSDRecovery(3); } break;
 					case 4: { 
 						MenuID = 0; 
 						if (!WarningPosted)LoadTopScreenSplash();

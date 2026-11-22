@@ -189,17 +189,39 @@ static void install_banner(const struct nrio_raw_info *info)
     }
 }
 
+static void restore_banner_spare(const struct nrio_raw_info *info)
+{
+    if (!nrio_recovery_prepare_banner_spare_restore()) {
+        puts("No matching banner ECC damage.");
+        show_write_error();
+        return;
+    }
+    if (!save_backup(true, info)) {
+        puts("Could not save the block-0 backup.");
+        return;
+    }
+    puts("Restore banner page ARM7 spare.\nCurrent banner data is preserved.");
+    if (confirm_write()) {
+        puts("Rewriting and verifying block 0.");
+        if (nrio_recovery_install_sd_banner()) puts("ARM7 spare restore verified.");
+        else show_write_error();
+    }
+}
+
 void nrioTool_sd_recovery(int action)
 {
     struct nrio_raw_info info;
     consoleClear();
-    enum nrio_raw_mode mode = action == 1 ? NRIO_RAW_SD_BANNER_INSTALL : NRIO_RAW_SAFE_MODE_INSTALL;
+    enum nrio_raw_mode mode = (action == 1 || action == 3)
+        ? NRIO_RAW_SD_BANNER_INSTALL : NRIO_RAW_SAFE_MODE_INSTALL;
     if (!select_view(mode, &info)) {
         puts("Could not probe Slot-1 NAND.");
     } else if (action == 2) {
         if (!save_backup(false, &info)) puts("Could not save the block-0 backup.");
     } else if (!nrio_recovery_bind_workspace(workspace, sizeof(workspace))) {
         puts("Could not reserve the erase buffer.");
+    } else if (action == 3) {
+        restore_banner_spare(&info);
     } else if (action == 1) {
         install_banner(&info);
     } else {
