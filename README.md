@@ -86,7 +86,7 @@ The `udisk_eng.nds` data in the reference `update.nds` begins at `0x24200` and i
 dd if=update.nds of=udisk_eng.nds bs=512 skip=289 count=1545
 ```
 
-The advanced actions append their diagnostic messages to `ADVANCED.TXT` and save `region-NNN/blocks.bin` and `region-NNN/SESSION.TXT` on the mounted storage. Each block snapshot includes every main and spare byte, its physical LBA, and a CRC. Use the integration project's extractor to verify the backup or extract main and packed spare files for each block:
+The advanced actions append their diagnostic messages to `ADVANCED.TXT` and save `region-NNN/blocks.bin` and `region-NNN/SESSION.TXT` on the mounted storage. If a snapshot reread differs from the saved page, two consecutive rereads must match the snapshot exactly before the tool proceeds. A persistent mismatch reports the NAND page, whether it was in main or spare data, the byte offset, and both values. Each block snapshot includes every main and spare byte, its physical LBA, and a CRC. Use the integration project's extractor to verify the backup or extract main and packed spare files for each block:
 
 ```sh
 python3 unpack_region.py region-000/blocks.bin --out extracted-blocks

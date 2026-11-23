@@ -27,7 +27,13 @@ enum nrio_raw_write_stage {
     NRIO_RAW_WRITE_TABLE_SOURCE,
     NRIO_RAW_WRITE_SNAPSHOT,
     NRIO_RAW_WRITE_SAFE_MODE_PLAN,
+    NRIO_RAW_WRITE_SNAPSHOT_READBACK,
 };
+
+/* SNAPSHOT_READBACK detail stores the page-record offset, saved byte, and live byte. */
+#define NRIO_RAW_SNAPSHOT_OFFSET(detail) ((detail) >> 16)
+#define NRIO_RAW_SNAPSHOT_SAVED(detail) (((detail) >> 8) & 0xff)
+#define NRIO_RAW_SNAPSHOT_LIVE(detail) ((detail) & 0xff)
 
 /* Select the view once, before processing sector I/O. */
 enum nrio_raw_mode {

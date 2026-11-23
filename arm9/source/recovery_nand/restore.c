@@ -122,15 +122,36 @@ static bool erased_bytes(const u8 *data, u32 size)
     return true;
 }
 
+static bool check_snapshot_page(u32 page, u8 *record, const u8 *expected,
+                                struct nrio_raw_write_error *error)
+{
+    if (equal(record, expected, PAGE_RECORD_SIZE)) return true;
+
+    // Retry a suspect read, but keep the original snapshot as the reference.
+    // Require two matching reads before accepting a page that differed once.
+    for (unsigned retry = 0; retry < 2; ++retry) {
+        if (!read_page(page, record))
+            return fail_write(error, NRIO_RAW_WRITE_READ_BLOCK, page, 0);
+        if (!equal(record, expected, PAGE_RECORD_SIZE)) {
+            for (u32 i = 0; i < PAGE_RECORD_SIZE; ++i) {
+                if (record[i] != expected[i])
+                    return fail_write(error, NRIO_RAW_WRITE_SNAPSHOT_READBACK, page,
+                                      i << 16 | (u32)expected[i] << 8 | record[i]);
+            }
+        }
+    }
+    return true;
+}
+
 bool patch_block_snapshot(u32 page, u32 pages, u8 *records, const u8 *snapshot,
                           const struct nrio_sector_patch *patches, u32 count, bool install,
                           struct nrio_raw_write_error *error)
 {
     if (!read_block_snapshot(page, pages, records, error)) return false;
     for (u32 i = 0; i < pages; ++i) {
-        const u8 *record = records + i * PAGE_RECORD_SIZE;
-        if (!equal(record, snapshot + i * PAGE_RECORD_SIZE, PAGE_RECORD_SIZE))
-            return fail_write(error, NRIO_RAW_WRITE_SNAPSHOT, page + i, 0);
+        u8 *record = records + i * PAGE_RECORD_SIZE;
+        if (!check_snapshot_page(page + i, record, snapshot + i * PAGE_RECORD_SIZE, error))
+            return false;
         u8 marker = record[PAGE_SIZE];
         if (page && i < 2 && marker != 0xff && marker != 0x55)
             return fail_write(error, NRIO_RAW_WRITE_MARKER, page + i, marker);

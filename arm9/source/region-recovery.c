@@ -181,6 +181,32 @@ static uint32_t batch_limit(const struct nrio_sector_patch *patches, uint32_t co
     return start;
 }
 
+void nrio_format_write_error(char *message, size_t size, const struct nrio_raw_write_error *error)
+{
+    if (error->stage == NRIO_RAW_WRITE_SNAPSHOT_READBACK) {
+        uint32_t offset = NRIO_RAW_SNAPSHOT_OFFSET(error->detail);
+        bool spare = offset >= PAGE;
+        snprintf(message, size, "Snapshot changed at page 0x%lX\n"
+                 "%s byte +0x%lX\nSaved %02lX, read %02lX.\n",
+                 (unsigned long)error->page, spare ? "Spare" : "Main",
+                 (unsigned long)(spare ? offset - PAGE : offset),
+                 (unsigned long)NRIO_RAW_SNAPSHOT_SAVED(error->detail),
+                 (unsigned long)NRIO_RAW_SNAPSHOT_LIVE(error->detail));
+    } else {
+        snprintf(message, size, "Stopped at stage %lu, page %lX,\ndetail %lX.\n",
+                 (unsigned long)error->stage, (unsigned long)error->page, (unsigned long)error->detail);
+    }
+}
+
+static void report_region_write_error(void)
+{
+    struct nrio_raw_write_error error;
+    char message[128];
+    nrio_recovery_get_write_error(&error);
+    nrio_format_write_error(message, sizeof(message), &error);
+    region_report("%s", message);
+}
+
 /* Spool the complete physical block snapshots before authorizing any erase. */
 static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t *snapshot,
                      const struct nrio_sector_patch *patches, uint32_t count,
@@ -227,7 +253,7 @@ static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t
         if (!nrio_recovery_read_snapshot(lba, snapshot, info->workspace_bytes) ||
             !nrio_recovery_patch_snapshot(lba, snapshot, patches + i, end - i, false)) {
             region_report("%s\n", "Stopped during read-only check.");
-            nrio_show_write_error();
+            report_region_write_error();
             goto done;
         }
 
@@ -279,7 +305,7 @@ static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t
         }
         region_report("Verifying block at 0x%08lX\n", (unsigned long)lba * SECTOR);
         if (!nrio_recovery_patch_snapshot(lba, snapshot, patches + i, end - i, true)) {
-            nrio_show_write_error();
+            report_region_write_error();
             goto done;
         }
         if (log) {
@@ -294,9 +320,11 @@ done:
     if (log) {
         struct nrio_raw_write_error error;
         nrio_recovery_get_write_error(&error);
-        if (error.stage) fprintf(log, "Stopped at stage %lu, page 0x%lX, detail 0x%lX.\n",
-                                 (unsigned long)error.stage, (unsigned long)error.page,
-                                 (unsigned long)error.detail);
+        if (error.stage) {
+            char message[128];
+            nrio_format_write_error(message, sizeof(message), &error);
+            fputs(message, log);
+        }
         fclose(log);
     }
     if (backup) fclose(backup);

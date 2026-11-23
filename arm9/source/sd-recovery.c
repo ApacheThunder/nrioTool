@@ -288,9 +288,10 @@ bool nrio_confirm_write(void)
 void nrio_show_write_error(void)
 {
     struct nrio_raw_write_error error;
+    char message[128];
     nrio_recovery_get_write_error(&error);
-    printf("Stopped at stage %lu, page %lX,\ndetail %lX.\n",
-           (unsigned long)error.stage, (unsigned long)error.page, (unsigned long)error.detail);
+    nrio_format_write_error(message, sizeof(message), &error);
+    printf("%s", message);
 }
 
 static void install_safe_mode(const char *root, const struct nrio_raw_info *info)
