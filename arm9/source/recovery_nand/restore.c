@@ -127,20 +127,27 @@ static bool check_snapshot_page(u32 page, u8 *record, const u8 *expected,
 {
     if (equal(record, expected, PAGE_RECORD_SIZE)) return true;
 
-    // Retry a suspect read, but keep the original snapshot as the reference.
-    // Require two matching reads before accepting a page that differed once.
-    for (unsigned retry = 0; retry < 2; ++retry) {
+    // A mismatching attempt breaks the streak but need not exhaust the retries.
+    unsigned consecutive_matches = 0;
+    u32 mismatch = 0;
+    for (unsigned attempt = 0; attempt < 5; ++attempt) {
+        if (!equal(record, expected, PAGE_RECORD_SIZE)) {
+            consecutive_matches = 0;
+            for (u32 i = 0; i < PAGE_RECORD_SIZE; ++i) {
+                if (record[i] != expected[i]) {
+                    mismatch = i << 16 | (u32)expected[i] << 8 | record[i];
+                    break;
+                }
+            }
+        } else if (++consecutive_matches == 2) {
+            return true;
+        }
+
+        if (attempt == 4) break;
         if (!read_page(page, record))
             return fail_write(error, NRIO_RAW_WRITE_READ_BLOCK, page, 0);
-        if (!equal(record, expected, PAGE_RECORD_SIZE)) {
-            for (u32 i = 0; i < PAGE_RECORD_SIZE; ++i) {
-                if (record[i] != expected[i])
-                    return fail_write(error, NRIO_RAW_WRITE_SNAPSHOT_READBACK, page,
-                                      i << 16 | (u32)expected[i] << 8 | record[i]);
-            }
-        }
     }
-    return true;
+    return fail_write(error, NRIO_RAW_WRITE_SNAPSHOT_READBACK, page, mismatch);
 }
 
 bool patch_block_snapshot(u32 page, u32 pages, u8 *records, const u8 *snapshot,

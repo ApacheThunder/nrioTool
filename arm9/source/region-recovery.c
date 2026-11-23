@@ -225,9 +225,10 @@ static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t
         region_report("%s\n", "Could not create backup folder.");
         return;
     }
-    char path[72];
+    char path[72], temporary[72];
     snprintf(path, sizeof(path), "%s/blocks.bin", directory);
-    FILE *backup = fopen(path, "wb");
+    snprintf(temporary, sizeof(temporary), "%s/blocks.part", directory);
+    FILE *backup = fopen(temporary, "wb");
     if (!backup) {
         region_report("%s\n", "Could not open backup file.");
         return;
@@ -275,10 +276,11 @@ static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t
     }
     int flush_result = fclose(backup);
     backup = NULL;
-    if (flush_result) {
+    if (flush_result || rename(temporary, path)) {
         region_report("%s\n", "Could not save block backup.");
         goto done;
     }
+    temporary[0] = '\0';
     region_report("Saved %lu block(s) to\n%s\n", (unsigned long)block_count, directory);
     region_report("%s\n", title);
     if (log) fflush(log);
@@ -331,6 +333,7 @@ done:
         fclose(log);
     }
     if (backup) fclose(backup);
+    if (*temporary) remove(temporary);
 }
 
 static bool load_range(const uint8_t *header, unsigned field, uint32_t lo, uint32_t hi)
