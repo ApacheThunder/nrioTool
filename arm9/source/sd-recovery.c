@@ -285,6 +285,21 @@ bool nrio_confirm_write(void)
     }
 }
 
+bool nrio_confirm_padding_erase(void)
+{
+    puts("\nPage 0xE looks like padding.\n"
+         "Its reads disagree.\n"
+         "Leave it erased if we write?\n\n"
+         "A: allow   B: cancel");
+    for (;;) {
+        swiWaitForVBlank();
+        scanKeys();
+        uint32_t down = keysDown();
+        if (down & KEY_B) return false;
+        if (down & KEY_A) return true;
+    }
+}
+
 void nrio_show_write_error(void)
 {
     struct nrio_raw_write_error error;

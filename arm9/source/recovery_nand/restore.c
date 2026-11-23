@@ -85,8 +85,35 @@ static bool fail_write(struct nrio_raw_write_error *error, u32 stage, u32 page, 
     return false;
 }
 
+static bool erased_bytes(const u8 *data, u32 size)
+{
+    for (u32 i = 0; i < size; ++i)
+        if (data[i] != 0xff) return false;
+    return true;
+}
+
+static bool looks_erased_padding(const u8 *record)
+{
+    // In captured faulty padding the first half and spare were entirely FF.
+    // The second half showed sparse, isolated cleared bits.
+    if (!erased_bytes(record, PAGE_SIZE / 2) || !erased_bytes(record + PAGE_SIZE, SPARE_SIZE))
+        return false;
+    unsigned total = 0;
+    for (u32 i = PAGE_SIZE / 2; i < PAGE_SIZE; ++i) {
+        u8 zero_bits = (u8)~record[i];
+        unsigned count = 0;
+        while (zero_bits) {
+            zero_bits &= zero_bits - 1;
+            ++count;
+        }
+        total += count;
+        if (count > 2 || total > 80) return false;
+    }
+    return true;
+}
+
 static bool program_and_verify_block(u32 page, u32 pages, const u8 *records,
-                                     struct nrio_raw_write_error *error)
+                                     bool leave_padding_erased, struct nrio_raw_write_error *error)
 {
     if (!nand_erase_block(page))
         return fail_write(error, NRIO_RAW_WRITE_ERASE, page, 0);
@@ -100,8 +127,12 @@ static bool program_and_verify_block(u32 page, u32 pages, const u8 *records,
     for (u32 i = 0; i < pages; ++i) {
         if (!read_page(page + i, verified))
             return fail_write(error, NRIO_RAW_WRITE_VERIFY_READ, page + i, 0);
-        if (!equal(verified, records + i * PAGE_RECORD_SIZE, PAGE_RECORD_SIZE))
+        if (leave_padding_erased && i == NRIO_RAW_PADDING_PAGE) {
+            if (!looks_erased_padding(verified))
+                return fail_write(error, NRIO_RAW_WRITE_VERIFY_DATA, page + i, 0);
+        } else if (!equal(verified, records + i * PAGE_RECORD_SIZE, PAGE_RECORD_SIZE)) {
             return fail_write(error, NRIO_RAW_WRITE_VERIFY_DATA, page + i, 0);
+        }
     }
     return true;
 }
@@ -112,13 +143,6 @@ bool read_block_snapshot(u32 page, u32 pages, u8 *records, struct nrio_raw_write
         if (!read_page(page + i, records + i * PAGE_RECORD_SIZE))
             return fail_write(error, NRIO_RAW_WRITE_READ_BLOCK, page + i, 0);
     }
-    return true;
-}
-
-static bool erased_bytes(const u8 *data, u32 size)
-{
-    for (u32 i = 0; i < size; ++i)
-        if (data[i] != 0xff) return false;
     return true;
 }
 
@@ -152,13 +176,19 @@ static bool check_snapshot_page(u32 page, u8 *record, const u8 *expected,
 
 bool patch_block_snapshot(u32 page, u32 pages, u8 *records, const u8 *snapshot,
                           const struct nrio_sector_patch *patches, u32 count, bool install,
-                          struct nrio_raw_write_error *error)
+                          bool leave_padding_erased, struct nrio_raw_write_error *error)
 {
     if (!read_block_snapshot(page, pages, records, error)) return false;
     for (u32 i = 0; i < pages; ++i) {
         u8 *record = records + i * PAGE_RECORD_SIZE;
-        if (!check_snapshot_page(page + i, record, snapshot + i * PAGE_RECORD_SIZE, error))
+        const u8 *saved = snapshot + i * PAGE_RECORD_SIZE;
+        if (leave_padding_erased && i == NRIO_RAW_PADDING_PAGE) {
+            if (!looks_erased_padding(saved) || !looks_erased_padding(record))
+                return fail_write(error, NRIO_RAW_WRITE_MARKER, page + i, 0);
+            for (u32 j = 0; j < PAGE_RECORD_SIZE; ++j) record[j] = 0xff;
+        } else if (!check_snapshot_page(page + i, record, saved, error)) {
             return false;
+        }
         u8 marker = record[PAGE_SIZE];
         if (page && i < 2 && marker != 0xff && marker != 0x55)
             return fail_write(error, NRIO_RAW_WRITE_MARKER, page + i, marker);
@@ -188,7 +218,7 @@ bool patch_block_snapshot(u32 page, u32 pages, u8 *records, const u8 *snapshot,
         regenerate_ecc(record, column);
         changed = true;
     }
-    return !install || !changed || program_and_verify_block(page, pages, records, error);
+    return !install || !changed || program_and_verify_block(page, pages, records, leave_padding_erased, error);
 }
 
 static bool rewrite_block(u32 page, u32 pages, u32 offset, u32 count,
@@ -243,7 +273,7 @@ static bool rewrite_block(u32 page, u32 pages, u32 offset, u32 count,
     }
     if (!changed) return true;
 
-    return program_and_verify_block(page, pages, records, error);
+    return program_and_verify_block(page, pages, records, false, error);
 }
 
 bool restore_sectors(u32 sector, u32 count, const u8 *buffer, u32 pages_per_block, u8 *workspace,
@@ -557,7 +587,7 @@ bool restore_safe_mode(u32 pages, u8 *records, struct nrio_raw_write_error *erro
         regenerate_ecc(record, column);
         changed = true;
     }
-    return !changed || program_and_verify_block(0, pages, records, error);
+    return !changed || program_and_verify_block(0, pages, records, false, error);
 }
 
 
@@ -671,7 +701,7 @@ bool install_sd_banner(u32 pages, u8 *records, struct nrio_raw_write_error *erro
     u8 *record = records + BANNER_PAGE * PAGE_RECORD_SIZE;
     if (live_banner_spare_only) {
         for (unsigned i = 0; i < SPARE_SIZE; ++i) record[PAGE_SIZE + i] = live_banner_spare[i];
-        return program_and_verify_block(0, pages, records, error);
+        return program_and_verify_block(0, pages, records, false, error);
     }
     bool changed = false;
     for (unsigned column = 0; column < SECTORS_PER_PAGE; ++column) {
@@ -681,7 +711,7 @@ bool install_sd_banner(u32 pages, u8 *records, struct nrio_raw_write_error *erro
         if (live_banner_has_ecc) regenerate_ecc(record, column);
         changed = true;
     }
-    return !changed || program_and_verify_block(0, pages, records, error);
+    return !changed || program_and_verify_block(0, pages, records, false, error);
 }
 
 
@@ -717,5 +747,5 @@ bool install_block0_restore(u32 pages, u8 *records, struct nrio_raw_write_error 
         !read_matching_snapshot(pages, records, error))
         return false;
     for (u32 i = 0; i < pages * PAGE_RECORD_SIZE; ++i) records[i] = live_restore_backup[i];
-    return program_and_verify_block(0, pages, records, error);
+    return program_and_verify_block(0, pages, records, false, error);
 }

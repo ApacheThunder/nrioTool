@@ -9,6 +9,7 @@
 #define NRIO_RAW_SECONDARY_TABLE UINT32_C(0x40000)
 #define NRIO_RAW_TABLE_BYTES UINT32_C(0x4000)
 #define NRIO_RAW_SHARED_SPARE_BYTES UINT32_C(512)
+#define NRIO_RAW_PADDING_PAGE UINT32_C(0xE)
 
 struct nrio_raw_info {
     uint32_t sectors;
@@ -102,12 +103,12 @@ uint32_t nrio_recovery_pages_per_block(void);
 bool nrio_recovery_read_snapshot(uint32_t lba, void *snapshot, uint32_t bytes);
 bool nrio_recovery_patch_snapshot(uint32_t lba, const void *snapshot,
                                   const struct nrio_sector_patch *patches, uint32_t count,
-                                  bool install);
+                                  bool install, bool leave_padding_erased);
 bool read_block_snapshot(uint32_t page, uint32_t pages, uint8_t *records,
                          struct nrio_raw_write_error *error);
 bool patch_block_snapshot(uint32_t page, uint32_t pages, uint8_t *records, const uint8_t *snapshot,
                           const struct nrio_sector_patch *patches, uint32_t count, bool install,
-                          struct nrio_raw_write_error *error);
+                          bool leave_padding_erased, struct nrio_raw_write_error *error);
 
 bool nrio_recovery_write(uint32_t sector, uint32_t count, const void *buffer);
 

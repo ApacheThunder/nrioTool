@@ -213,7 +213,7 @@ static void report_region_write_error(void)
 /* Spool the complete physical block snapshots before authorizing any erase. */
 static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t *snapshot,
                      const struct nrio_sector_patch *patches, uint32_t count,
-                     const char *title)
+                     const char *title, bool allow_padding)
 {
     if (!count) {
         region_report("%s\n", "The mapped bytes already match.");
@@ -251,14 +251,30 @@ static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t
     }
 
     uint32_t block_count = 0;
+    bool leave_padding_erased = false;
     for (uint32_t i = 0; i < count;) {
         uint32_t lba = patches[i].lba / block_sectors * block_sectors;
         uint32_t end = batch_limit(patches, count, i, lba, block_sectors);
-        if (!nrio_recovery_read_snapshot(lba, snapshot, info->workspace_bytes) ||
-            !nrio_recovery_patch_snapshot(lba, snapshot, patches + i, end - i, false)) {
+        if (!nrio_recovery_read_snapshot(lba, snapshot, info->workspace_bytes)) {
             region_report("%s\n", "Stopped during read-only check.");
             report_region_write_error();
             goto done;
+        }
+        if (!nrio_recovery_patch_snapshot(lba, snapshot, patches + i, end - i, false, false)) {
+            if (!allow_padding || lba ||
+                !nrio_recovery_patch_snapshot(lba, snapshot, patches + i, end - i, false, true)) {
+                region_report("%s\n", "Stopped during read-only check.");
+                report_region_write_error();
+                goto done;
+            }
+            if (!nrio_confirm_padding_erase()) {
+                region_report("%s\n", "Padding exception declined.");
+                if (log) fputs("Padding exception declined.\n", log);
+                goto done;
+            }
+            leave_padding_erased = true;
+            region_report("%s\n", "Page 0xE will be left erased.");
+            if (log) fputs("Page 0xE will be left erased.\n", log);
         }
 
         uint32_t header[] = {lba, info->nand_id, info->workspace_bytes,
@@ -309,7 +325,8 @@ static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t
             goto done;
         }
         region_report("Verifying block at 0x%08lX\n", (unsigned long)lba * SECTOR);
-        if (!nrio_recovery_patch_snapshot(lba, snapshot, patches + i, end - i, true)) {
+        if (!nrio_recovery_patch_snapshot(lba, snapshot, patches + i, end - i, true,
+                                          !lba && leave_padding_erased)) {
             report_region_write_error();
             goto done;
         }
@@ -319,8 +336,11 @@ static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t
         }
         i = end;
     }
-    region_report("%s\n", "All rewritten blocks verified.");
-    if (log) fputs("All rewritten blocks verified.\n", log);
+    const char *result = leave_padding_erased
+        ? "Other pages verified exactly.\nPage 0xE left erased."
+        : "All rewritten blocks verified.";
+    region_report("%s\n", result);
+    if (log) fprintf(log, "%s\n", result);
 done:
     if (log) {
         struct nrio_raw_write_error error;
@@ -503,7 +523,7 @@ static void install_safe_replacement(const char *root, const struct nrio_raw_inf
     original = NULL;
     free(replacement);
     replacement = NULL;
-    run_plan(root, info, snapshot, patches, count, "Install safe-mode replacement");
+    run_plan(root, info, snapshot, patches, count, "Install safe-mode replacement", true);
 
 done:
     free(patches);
@@ -601,7 +621,7 @@ static void install_stock_udisk(const char *root, const struct nrio_raw_info *in
         patches[payload_sectors + i] = (struct nrio_sector_patch){NRIO_RAW_SECONDARY_TABLE / SECTOR + i,
                                                                  map + i * SECTOR, NULL};
 
-    run_plan(root, info, snapshot, patches, payload_sectors + map_sectors, "Repair stock uDisk 1.45");
+    run_plan(root, info, snapshot, patches, payload_sectors + map_sectors, "Repair stock uDisk 1.45", false);
 
 done:
     free(patches);

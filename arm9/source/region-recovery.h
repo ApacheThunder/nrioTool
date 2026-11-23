@@ -26,6 +26,7 @@ const char *nrio_boot_kind_name(enum nrio_boot_kind kind);
 void nrio_install_region(const char *root, const struct nrio_raw_info *info,
                          void *snapshot, bool udisk);
 bool nrio_confirm_write(void);
+bool nrio_confirm_padding_erase(void);
 void nrio_show_write_error(void);
 void nrio_format_write_error(char *message, size_t size, const struct nrio_raw_write_error *error);
 uint32_t nrio_update_crc32(uint32_t crc, const uint8_t *data, size_t size);

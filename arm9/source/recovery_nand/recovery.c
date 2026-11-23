@@ -188,15 +188,25 @@ bool nrio_recovery_read_snapshot(uint32_t lba, void *snapshot, uint32_t bytes)
 
 bool nrio_recovery_patch_snapshot(uint32_t lba, const void *snapshot,
                                   const struct nrio_sector_patch *patches, uint32_t count,
-                                  bool install)
+                                  bool install, bool leave_padding_erased)
 {
-    if (!snapshot || !patches || !count || !valid_block(lba)) return false;
+    if (!snapshot || !patches || !count || (leave_padding_erased && lba)) return false;
+    if (leave_padding_erased && !install) {
+        uint32_t offset = NRIO_RAW_SNAPSHOT_OFFSET(write_error.detail);
+        if (active_mode != NRIO_RAW_SD_REGION_INSTALL ||
+            write_error.stage != NRIO_RAW_WRITE_SNAPSHOT_READBACK ||
+            write_error.page != NRIO_RAW_PADDING_PAGE ||
+            offset < PAGE_SIZE / 2 || offset >= PAGE_SIZE) return false;
+        write_error.stage = NRIO_RAW_WRITE_NONE;
+    }
+    if (!valid_block(lba)) return false;
     uint32_t limit = lba + geometry.pages_per_block * SECTORS_PER_PAGE;
     for (uint32_t i = 0; i < count; ++i) {
         uint32_t target = patches[i].lba;
-        if (!patches[i].data || target < lba || target >= limit || (i && patches[i-1].lba >= target))
+        if (!patches[i].data || target < lba || target >= limit || (i && patches[i-1].lba >= target) ||
+            (leave_padding_erased && target / SECTORS_PER_PAGE == NRIO_RAW_PADDING_PAGE))
             return false;
     }
     return patch_block_snapshot(lba / SECTORS_PER_PAGE, geometry.pages_per_block, workspace,
-                                snapshot, patches, count, install, &write_error);
+                                snapshot, patches, count, install, leave_padding_erased, &write_error);
 }
