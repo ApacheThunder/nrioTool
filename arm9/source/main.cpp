@@ -20,6 +20,7 @@
 #include "read_card.h"
 #include "nds_card.h"
 #include "launch_engine.h"
+#include "srl-dump.h"
 extern "C" const u8 usb_mount_bin[] __attribute__((weak));
 extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 
@@ -29,8 +30,6 @@ extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 #define MAXFILESIZE (u32)0x00200000
 
 #define INITBUFFER  0x02000000
-#define STAGE2_HEADER 0x02000200
-#define UDISK_HEADER 0x02000400
 
 #define CONSOLE_SCREEN_WIDTH 32
 #define CONSOLE_SCREEN_HEIGHT 24
@@ -49,8 +48,6 @@ extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 #define STAGE1OFFSET (u32)0x400
 #define STAGE1SECTORCOUNT 22
 
-// #define STAGE2OFFSET (u32)0x00020000
-// #define UDISKROMOFFSET (u32)0x00080000
 
 #define FALLBACKSIZE 20000
 
@@ -63,23 +60,14 @@ extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 tNDSHeader* ndsHeader = (tNDSHeader*)NDS_HEADER;
 tDSiHeader* cartHeader = (tDSiHeader*)DSI_HEADER;
 
-tNDSHeader* stage2Header = (tNDSHeader*)STAGE2_HEADER;
-tNDSHeader* uDiskHeader = (tNDSHeader*)UDISK_HEADER;
 
 DTCM_DATA ALIGN(4) u8 ReadBuffer[SECTOR_SIZE];
-DTCM_DATA ALIGN(4) u32 ReadBuffer32[128];
 DTCM_DATA ALIGN(4) u8 FATBuffer[2048];
 
-ALIGN(4) u32 BlockTableBuffer[0x4000];
-ALIGN(4) u32 NandBlockBuffer[0x1000]; // Each block is eqilivent to 32 sectors (when a sector is 512 bytes in size)
 
 // ALIGN(4) u32 CartReadBuffer[512];
 
-const u32 STAGE2BLOCKTABLE = 0x8000;
 
-DTCM_DATA volatile u32 UDISKBLOCKTABLE = 0x40000;
-DTCM_DATA volatile u32 STAGE2OFFSET = 0x00020000;
-DTCM_DATA volatile u32 UDISKROMOFFSET = 0x00080000;
 DTCM_DATA volatile int BlockTableSize = 0;
 DTCM_DATA volatile int cartSize = 0;
 DTCM_DATA volatile int ProgressTracker = 0;
@@ -95,12 +83,13 @@ DTCM_DATA volatile bool ntrMode = false;
 DTCM_DATA volatile bool dldiWarned = false;
 DTCM_DATA volatile bool uDiskFileFound = false;
 DTCM_DATA volatile bool WarningPosted = false;
-DTCM_DATA volatile bool isBootleg = false;
-DTCM_DATA volatile bool isCustom = false;
 DTCM_DATA volatile bool UpdateProgressText = false;
 DTCM_DATA volatile bool UpdateDebugText = false;
 
 DTCM_DATA char gameTitle[13] = {0};
+
+static nrio_srl_layout srlLayout;
+static bool rawNandAvailable;
 
 const char* textBuffer = "X------------------------------X\nX------------------------------X";
 const char* textProgressBuffer = "X------------------------------X\nX------------------------------X";
@@ -695,6 +684,7 @@ void DoTestDump() {
 	}
 	FILE *dest;
 	if (sdMounted) { dest = fopen("sd:/nrioFiles/nrio_data.bin", "wb"); } else { dest = fopen("fat:/nrioFiles/nrio_data.bin", "wb"); }
+	InitCartNandReadMode(*(u32*)(DSI_HEADER + 0x08));
 	ProgressTracker = NUM_SECTORS;
 	textBuffer = "Dumping sectors to nrio_data.bin\n\nPress [B] to abort...\n\n\n";
 	textProgressBuffer = "Sectors Remaining: ";
@@ -725,280 +715,91 @@ void DoTestDump() {
 	}
 }
 
-void DoStage1Dump() {
-	consoleClear();
-	DoWait(60);
-	printf("About to dump stage1 data...\n\n");
-	printf("Press [A] to continue.\n\n");
-	printf("Press [B] to abort.\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A)break;
-		if(keysDown() & KEY_B)return;
-	}
-	if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) {
-		MountFATDevices(wasDSi);
-		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
-	}
-	FILE *dest;
-	if (sdMounted) { dest = fopen("sd:/nrioFiles/stage1.bin", "wb"); } else { dest = fopen("fat:/nrioFiles/stage1.bin", "wb"); }
-	ProgressTracker = STAGE1SECTORCOUNT;
-	textBuffer = "Dumping stage1 rom to file.\n\nPlease Wait...\n\n\n";
-	textProgressBuffer = "Sectors Remaining: ";
-	UpdateProgressText = true;
-	for (int i = 0; i < STAGE1SECTORCOUNT; i++){
-		nrio_readSector(ReadBuffer, (u32)(i * 0x200) + STAGE1OFFSET);
-		fwrite(ReadBuffer, 0x200, 1, dest); // Used Region
-		ProgressTracker--;
-		UpdateProgressText = true;
-	}
-	fclose(dest);
-	while(UpdateProgressText)swiWaitForVBlank();
-	consoleClear();
-	printf("Stage1 dump finished!\n\n");
-	printf("Press [A] to return to main menu\n\n");
-	printf("Press [B] to exit\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) return;
-		if(keysDown() & KEY_B) { 
-			ErrorState = true;
-			return;
-		}
-	}
+static void RefreshSrlLayout() {
+	nrio_raw_info info;
+	rawNandAvailable = nrio_srl_open(&info);
+	srlLayout = rawNandAvailable ? nrio_srl_detect(info.sectors) : nrio_srl_layout{};
+	nrio_recovery_shutdown();
 }
 
-void DoStage2Dump() {
+static void DoSrlDump(const char *name, u32 table = 0) {
+	static u32 addresses[NRIO_SRL_MAP_ENTRIES];
+	alignas(4) static u8 buffer[NRIO_SRL_MAP_BLOCK];
+
 	consoleClear();
-	DoWait(60);
-	if (isBootleg) {
-		printf("About to dump bootleg SRL...\n\n");
-	} else {
-		printf("About to dump stage2 SRL...\n\n");
-	}
-	printf("Press [A] to continue.\n\n");
-	printf("Press [B] to abort.\n");
-	while(1) {
+	printf("Dump %s?\n\n", name);
+	puts("A Continue  B Back");
+	for (;;) {
 		swiWaitForVBlank();
 		scanKeys();
-		if(keysDown() & KEY_A)break;
-		if(keysDown() & KEY_B)return;
-	}
-	if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) {
-		MountFATDevices(wasDSi);
-		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
-	}
-	toncset32((void*)BlockTableBuffer, 0xFFFFFFFF, 0xFA0);
-	toncset((void*)NandBlockBuffer, 0xFF, 0x4000);
-	
-	// int Sectors;
-	int Blocks = 1;
-	int BadBlocks = 0;
-	bool hasValidRomsize = false;
-	
-	nrio_readSector((void*)STAGE2_HEADER, STAGE2OFFSET);
-	
-	// 0x10000000 is the max possible rom size block table can setup
-	if ((stage2Header->romSize > 0) && (stage2Header->romSize <= 0x10000000))hasValidRomsize = true;
-	
-	for (int i = 0; i < 128; i++)nrio_readSector(((u32*)BlockTableBuffer + (i * 128)), (STAGE2BLOCKTABLE + (i * 0x200)));
-	u32 FirstBlock = BlockTableBuffer[0];
-	u32 CurrentBlock = FirstBlock;
-		
-	for (int i = 1; i < 4000; i++) {
-		if ((BlockTableBuffer[i] < 0x20000) || (BlockTableBuffer[i] == 0xFFFFFFFF) || (BlockTableBuffer[i] < CurrentBlock) || (BlockTableBuffer[i] > 0x80000000))break;
-		if ((BlockTableBuffer[i - 1] + 0x4000) != BlockTableBuffer[i])BadBlocks++;
-		if (hasValidRomsize && ((BlockTableBuffer[i] - BlockTableBuffer[0]) > (stage2Header->romSize + 0x4000)))break;
-		CurrentBlock = BlockTableBuffer[i];
-		Blocks++;
-	}
-	/*DoWait(2);
-	if ((stage2Header->romSize > 0) && (stage2Header->romSize <= 0x10000000)) { // 0x10000000 is the max possible rom size block table can setup
-		Sectors = (int)(stage2Header->romSize / 0x200) + 2; // Add one sector to avoid underdump if size is not a multiple of 128 words
-	} else {
-		Sectors = 20000;
-	}*/
-	FILE *dest;
-	if (isBootleg) {
-		if (sdMounted) { dest = fopen("sd:/nrioFiles/bootleg.nds", "wb"); } else { dest = fopen("fat:/nrioFiles/bootleg.nds", "wb"); }
-	} else {
-		if (sdMounted) { dest = fopen("sd:/nrioFiles/stage2.nds", "wb"); } else { dest = fopen("fat:/nrioFiles/stage2.nds", "wb"); }
-	}
-	
-	if (!dest) { DoError("ERROR: Failed to create file!"); return; }
-	ProgressTracker = Blocks;
-	if (isBootleg) { 
-		textBuffer = "Dumping to bootleg.nds...\nPlease Wait...\n\n\n";
-	} else {
-		textBuffer = "Dumping to stage2.nds...\nPlease Wait...\n\n\n";
-	}
-	// textProgressBuffer = "Sectors Remaining: ";
-	textProgressBuffer = "Blocks Remaining: ";
-	for (int i = 0; i < Blocks; i++) {
-		for (int I = 0; I < 32; I++) {
-			nrio_readSector(((u32*)NandBlockBuffer + (I * 128)), (BlockTableBuffer[i] + (I * 0x200)));
-		}
-		fwrite((u8*)NandBlockBuffer, 0x4000, 1, dest);
-		ProgressTracker--;
-		UpdateProgressText = true;
+		const u32 keys = keysDown();
+		if (keys & KEY_B) return;
+		if (keys & KEY_A) break;
 	}
 
-	/* for (int i = 0; i < Sectors; i++) {
-		nrio_readSector(ReadBuffer, (u32)(i * 0x200) + STAGE2OFFSET);
-		fwrite((u8*)ReadBuffer, 0x200, 1, dest);
-		ProgressTracker--;
-		UpdateProgressText = true;
-	}*/
-	fclose(dest);
-	consoleClear();
-	printf("Dump finished!\n");
-	if (BadBlocks > 0) {
-		iprintf("%d blocks were reassigned\nin this section's block table.\n", BadBlocks);
+	const char *root = wasDSi ? "sd:/nrioFiles" : "fat:/nrioFiles";
+	char path[48], temporary[48];
+	snprintf(path, sizeof(path), "%s/%s", root, name);
+	snprintf(temporary, sizeof(temporary), "%s/%s.part", root, name);
+	if (access(path, F_OK) == 0 || access(temporary, F_OK) == 0) {
+		DoError("Move the existing dump or .part\nfile before dumping again.", false);
+		return;
 	}
-	printf("\nPress [A] to return to main menu\n\n");
-	printf("Press [B] to exit\n");
-	while(1) {
+
+	nrio_raw_info info;
+	if (!nrio_srl_open(&info)) {
+		DoError("Could not probe Slot-1 NAND.", false);
+		return;
+	}
+	u32 blocks = 1;
+	if (table && !nrio_srl_plan(table, info.sectors, addresses, &blocks)) {
+		nrio_recovery_shutdown();
+		DoError("Invalid or unreadable SRL map.", false);
+		return;
+	}
+
+	FILE *dest = fopen(temporary, "wb");
+	if (!dest) {
+		nrio_recovery_shutdown();
+		DoError("Could not create the dump file.", false);
+		return;
+	}
+	const u32 sectors = table ? NRIO_SRL_MAP_BLOCK / SECTOR_SIZE : STAGE1SECTORCOUNT;
+	bool ok = true;
+	bool cancelled = false;
+	for (u32 i = 0; i < blocks; ++i) {
+		scanKeys();
+		if (keysDown() & KEY_B) {
+			cancelled = true;
+			break;
+		}
+		if (i % 32 == 0 || i + 1 == blocks) {
+			consoleClear();
+			printf("Dumping %s\nBlock %lu of %lu\n\nB Cancel",
+			       name, (unsigned long)i + 1, (unsigned long)blocks);
+		}
+		const u32 address = table ? addresses[i] : STAGE1OFFSET;
+		const size_t bytes = sectors * SECTOR_SIZE;
+		ok = nrio_recovery_read(address / SECTOR_SIZE, sectors, buffer) &&
+		     fwrite(buffer, 1, bytes, dest) == bytes;
+		if (!ok) break;
+	}
+
+	if (fclose(dest)) ok = false;
+	nrio_recovery_shutdown();
+	if (ok && !cancelled) ok = rename(temporary, path) == 0;
+	if (!ok || cancelled) {
+		remove(temporary);
+		if (!cancelled) DoError("Could not read or save the SRL.", false);
+		return;
+	}
+	consoleClear();
+	printf("Saved %s\n\nA Back", name);
+	do {
 		swiWaitForVBlank();
 		scanKeys();
-		if(keysDown() & KEY_A) return;
-		if(keysDown() & KEY_B) { 
-			ErrorState = true;
-			return;
-		}
-	}
+	} while (!(keysDown() & (KEY_A | KEY_B)));
 }
-
-
-void DoUdiskDump() {
-	consoleClear();
-	DoWait(60);	
-	printf("About to dump uDisk SRL...\n\n");
-	printf("Press [A] to continue.\n\n");
-	printf("Press [B] to abort.\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A)break;
-		if(keysDown() & KEY_B)return;
-	}
-	if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) {
-		MountFATDevices(wasDSi);
-		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
-	}
-	toncset32((void*)BlockTableBuffer, 0xFFFFFFFF, 0xFA0);
-	toncset((void*)NandBlockBuffer, 0xFF, 0x4000);
-	
-	int Blocks = 1;
-	int BadBlocks = 0;
-	bool hasValidRomsize = false;
-	
-	nrio_readSector((void*)UDISK_HEADER, UDISKROMOFFSET);
-	
-	// 0x10000000 is the max possible rom size block table can setup
-	if ((uDiskHeader->romSize > 0) && (uDiskHeader->romSize <= 0x10000000))hasValidRomsize = true;
-	
-	for (int i = 0; i < 128; i++) {
-		nrio_readSector(((u32*)BlockTableBuffer + (i * 128)), (UDISKBLOCKTABLE + (i * 0x200)));
-	}
-	
-	u32 FirstBlock = BlockTableBuffer[0];
-	u32 CurrentBlock = FirstBlock;
-		
-	for (int i = 1; i < 4000; i++) {
-		if ((BlockTableBuffer[i] < 0x20000) || (BlockTableBuffer[i] == 0xFFFFFFFF) || (BlockTableBuffer[i] < CurrentBlock) || (BlockTableBuffer[i] > 0x80000000))break;
-		if ((BlockTableBuffer[i - 1] + 0x4000) != BlockTableBuffer[i])BadBlocks++;
-		if (hasValidRomsize && ((BlockTableBuffer[i] - BlockTableBuffer[0]) > uDiskHeader->romSize))break;
-		CurrentBlock = BlockTableBuffer[i];
-		Blocks++;
-	}
-	FILE *dest;
-	if (sdMounted) { dest = fopen("sd:/nrioFiles/udisk.nds", "wb"); } else { dest = fopen("fat:/nrioFiles/udisk.nds", "wb"); }
-	if (!dest) { DoError("ERROR: Failed to create file!"); return; }
-	ProgressTracker = Blocks;
-	textBuffer = "Dumping to udisk.nds...\nPlease Wait...\n\n\n";
-	textProgressBuffer = "Blocks Remaining: ";
-	for (int i = 0; i < Blocks; i++) {
-		for (int I = 0; I < 32; I++) {
-			nrio_readSector(((u32*)NandBlockBuffer + (I * 128)), (BlockTableBuffer[i] + (I * 0x200)));
-		}
-		fwrite((u8*)NandBlockBuffer, 0x4000, 1, dest);
-		ProgressTracker--;
-		UpdateProgressText = true;
-	}
-	fclose(dest);
-	consoleClear();
-	printf("Dump finished!\n");
-	if (BadBlocks > 0) {
-		iprintf("%d blocks were reassigned\nin this section's block table.\n", BadBlocks);
-	}
-	printf("\nPress [A] to return to main menu\n\n");
-	printf("Press [B] to exit\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) return;
-		if(keysDown() & KEY_B) { 
-			ErrorState = true;
-			return;
-		}
-	}
-}
-
-
-/*void DoUdiskDump() {
-	consoleClear();
-	DoWait(60);
-	printf("About to dump uDisk...\n\n");
-	printf("Press [A] to continue.\n\n");
-	printf("Press [B] to abort.\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A)break;
-		if(keysDown() & KEY_B)return;
-	}
-	if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) {
-		MountFATDevices(wasDSi);
-		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
-	}
-	
-	int Sectors;
-	nrio_readSector((void*)UDISK_HEADER, UDISKROMOFFSET);
-	DoWait(2);
-	if ((uDiskHeader->romSize > 0) && (uDiskHeader->romSize <= 0x10000000)) {
-		Sectors = (int)(uDiskHeader->romSize / 0x200) + 1; // Add one sector to avoid underdump if size is not a multiple of 128 words
-	} else {
-		Sectors = 20000;
-	}
-	FILE *dest;
-	if (sdMounted) { dest = fopen("sd:/nrioFiles/udisk.nds", "wb"); } else { dest = fopen("fat:/nrioFiles/udisk.nds", "wb"); }
-	if (!dest) { DoError("ERROR: Failed to create file!"); return; }
-	ProgressTracker = Sectors;
-	textBuffer = "Dumping to udisk.nds...\nPlease Wait...\n\n\n";
-	textProgressBuffer = "Sectors Remaining: ";
-	for (int i = 0; i < Sectors; i++){
-		nrio_readSector(ReadBuffer, (u32)(i * 0x200) + UDISKROMOFFSET);
-		fwrite(ReadBuffer, 0x200, 1, dest);
-		ProgressTracker--;
-		UpdateProgressText = true;
-	}
-	fclose(dest);
-	consoleClear();
-	iprintf("Dump finished!\n\n");
-	iprintf("Press [A] to return to main menu\n\n");
-	iprintf("Press [B] to exit\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) return;
-		if(keysDown() & KEY_B) { 
-			ErrorState = true;
-			return;
-		}
-	}
-}*/
 
 // Not working yet
 /*void DoBannerWrite() {
@@ -1021,7 +822,6 @@ void DoUdiskDump() {
 		MountFATDevices(wasDSi);
 		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
 	}
-	// nrio_readSector((void*)STAGE2_HEADER, 0);
 	DoWait(2);
 	consoleClear();
 	FILE *bannerFile;
@@ -1260,9 +1060,9 @@ static void RunDldiMenu() {
 static MenuAction MainMenu() {
 	const MenuItem items[] = {
 		{MenuAction::Utility, "Utility Menu"},
-		{MenuAction::DumpMain, "Dump main SRL"},
-		{MenuAction::DumpStage2, isBootleg ? "Dump bootleg SRL" : "Dump Stage2 SRL", !isCustom},
-		{MenuAction::DumpUdisk, "Dump uDisk SRL", !isBootleg},
+		{MenuAction::DumpMain, "Dump main SRL", rawNandAvailable},
+		{MenuAction::DumpStage2, srlLayout.bootleg ? "Dump bootleg SRL" : "Dump Stage2 SRL", srlLayout.stage2_table != 0},
+		{MenuAction::DumpUdisk, "Dump uDisk SRL", srlLayout.udisk_table != 0},
 		{MenuAction::Dldi, "DLDI Menu", wasDSi},
 		{MenuAction::BootCart, "Boot cart menu", wasDSi},
 	};
@@ -1332,28 +1132,10 @@ int main() {
 		fifoSendValue32(FIFO_USER_03, 1);
 		return 0;
 	}
-	if (memcmp(cartHeader->ndshdr.gameCode, "DSGB", 4)) {
-		if(!WarningPosted)LoadTopScreenDebugSplash();
-		WarningPosted = true;
-		consoleClear();
-		PrintToTop("WARNING! The cart in slot 1\ndoesn't appear to be an\nN-Card or one of it's clones!\n\n", -1, false);
-		
-	}
-	if (*(u32*)(INITBUFFER) != 0x2991AE1D) {
-		if(!WarningPosted)LoadTopScreenDebugSplash();
-		consoleClear();
-		/*FILE *initFile = fopen("sd:/nrioFiles/nrio_InitLog.bin", "wb");
-		if (initFile) {
-			fwrite((u32*)INITBUFFER, 0x200, 1, initFile); // Used Region
-			fclose(initFile);
-		}
-		toncset((void*)0x02000000, 0, 0x800);*/
-		PrintToTop("WARNING! Cart returned\nunexpected response from init\ncommand!\n\n", -1, false);
-		PrintToTop("Command response debug:\n\n", -1, false);
-		PrintToTop("%08x\n", *(u32*)0x02000010, false);
-		PrintToTop("%08x\n", *(u32*)0x02000020, false);
-		PrintToTop("%08x\n", *(u32*)0x02000030, false);
-		PrintToTop("%08x\n", *(u32*)0x02000040, false);
+	RefreshSrlLayout();
+	if (!rawNandAvailable) {
+		LoadTopScreenDebugSplash();
+		PrintToTop("Could not probe Slot-1 NAND.\n", -1, true);
 		WarningPosted = true;
 	}
 	if (autoBootCart) { SetSCFG(); DoCartBoot(); }
@@ -1362,24 +1144,6 @@ int main() {
 	
 	if (wasDSi) { if(access("sd:/nrioFiles", F_OK) != 0)mkdir("sd:/nrioFiles", 0777); } else { if(access("fat:/nrioFiles", F_OK) != 0)mkdir("fat:/nrioFiles", 0777); }
 	
-	// Determin location of stage2 rom and set offset based on first block table entry for it in 0x8000 block table used by stage1.
-	// "Bootleg" style N-Cards typically have block table setup to load stage2 from 0x40000 instead of 0x80000. (stage2 being the actual game rom in this instance)
-	// This is not a gurantee so I've added code to handle reading first block table address and determining stage2 location from that.
-	nrio_readSector(ReadBuffer32, STAGE2BLOCKTABLE);
-	// Detect if bootleg style N-Card if the value is the expected value bootleg style N-Cards use. (mostly just for UI purposes)
-	if (ReadBuffer32[0] > 0x7FFFF) { isCustom = true; } else if (ReadBuffer32[0] > 0x3FFFF) { isBootleg = true;	}
-	STAGE2OFFSET = ReadBuffer32[0];
-	
-	// Determin location of udisk rom and set offset based on first block table entry.
-	// Will use stage2 block table if stage2 block table was modified to use udisk section.
-	if (isCustom) {
-		nrio_readSector(ReadBuffer32, STAGE2BLOCKTABLE);
-		UDISKBLOCKTABLE = STAGE2BLOCKTABLE;
-	} else {
-		nrio_readSector(ReadBuffer32, UDISKBLOCKTABLE);
-	}
-	UDISKROMOFFSET = ReadBuffer32[0];
-
 	while(1) {
 		if (ErrorState) {
 			consoleClear();
@@ -1390,12 +1154,15 @@ int main() {
 		switch (MainMenu()) {
 			case MenuAction::Utility:
 				RunUtilityMenu();
+				if (!ErrorState) RefreshSrlLayout();
 				if (!WarningPosted) LoadTopScreenSplash();
 				break;
 			case MenuAction::Dldi: RunDldiMenu(); break;
-			case MenuAction::DumpMain: DoStage1Dump(); break;
-			case MenuAction::DumpStage2: DoStage2Dump(); break;
-			case MenuAction::DumpUdisk: DoUdiskDump(); break;
+			case MenuAction::DumpMain: DoSrlDump("stage1.bin"); break;
+			case MenuAction::DumpStage2:
+				DoSrlDump(srlLayout.bootleg ? "bootleg.nds" : "stage2.nds", srlLayout.stage2_table);
+				break;
+			case MenuAction::DumpUdisk: DoSrlDump("udisk.nds", srlLayout.udisk_table); break;
 			case MenuAction::BootCart: SetSCFG(); DoCartBoot(); break;
 			default: ErrorState = true; break;
 		}
