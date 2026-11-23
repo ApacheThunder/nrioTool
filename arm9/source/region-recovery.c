@@ -122,13 +122,16 @@ const char *nrio_boot_kind_name(enum nrio_boot_kind kind)
     return names[kind];
 }
 
-static uint8_t *load_file(const char *root, const char *name, size_t max, size_t *length)
+static uint8_t *load_file(const char *root, const char *name, size_t max, size_t *length,
+                          bool *missing)
 {
     char path[56];
     snprintf(path, sizeof(path), "%s/%s", root, name);
+    if (missing) *missing = false;
     FILE *file = fopen(path, "rb");
     if (!file) {
-        region_report("Could not open %s\n", name);
+        if (missing && errno == ENOENT) *missing = true;
+        else region_report("Could not open %s\n", name);
         return NULL;
     }
     uint8_t *data = NULL;
@@ -354,6 +357,26 @@ static bool replacement_header(const uint8_t *rom, size_t length)
     return size == length || blank(rom + size, length - size);
 }
 
+static uint8_t *read_original_rom(const uint32_t *mapped, uint32_t size)
+{
+    uint32_t sectors = (size + SECTOR - 1) / SECTOR;
+    uint8_t *rom = malloc(sectors * SECTOR);
+    if (!rom) {
+        region_report("%s\n", "Could not allocate original ROM.");
+        return NULL;
+    }
+    const uint32_t chunk = MAP_BYTES / SECTOR;
+    for (uint32_t i = 0; i < sectors; i += chunk) {
+        uint32_t count = sectors - i < chunk ? sectors - i : chunk;
+        if (!nrio_recovery_read(mapped[i / chunk] / SECTOR, count, rom + i * SECTOR)) {
+            region_report("Could not read original ROM\nat offset 0x%lX.\n", (unsigned long)i * SECTOR);
+            free(rom);
+            return NULL;
+        }
+    }
+    return rom;
+}
+
 static void install_safe_replacement(const char *root, const struct nrio_raw_info *info,
                                      uint8_t *snapshot)
 {
@@ -364,20 +387,28 @@ static void install_safe_replacement(const char *root, const struct nrio_raw_inf
         return;
     }
 
+    uint32_t stock_used = boot.size;
+    if (stock_used < SECTOR || stock_used > SAFE_LIMIT) {
+        region_report("%s\n", "Live safe ROM size is invalid.");
+        return;
+    }
+
     size_t original_length = 0, replacement_length = 0;
-    uint8_t *original = load_file(root, "safe-original.nds", SAFE_LIMIT, &original_length);
-    if (!original) return;
-    uint8_t *replacement = load_file(root, "safe-replacement.nds", SAFE_LIMIT, &replacement_length);
+    bool original_missing;
+    uint8_t *original = load_file(root, "safe-original.nds", SAFE_LIMIT, &original_length,
+                                  &original_missing);
+    if (!original && !original_missing) return;
+    uint8_t *replacement = load_file(root, "safe-replacement.nds", SAFE_LIMIT, &replacement_length, NULL);
     uint8_t *expected = NULL, *desired = NULL;
     struct nrio_sector_patch *patches = NULL;
     if (!replacement) goto done;
-    if (!replacement_header(original, original_length) || !replacement_header(replacement, replacement_length)) {
-        region_report("%s\n", "Invalid compact ROM or CRC.");
+    if (!replacement_header(replacement, replacement_length)) {
+        region_report("%s\n", "Invalid replacement ROM or CRC.");
         goto done;
     }
-    uint32_t stock_used = word(original + 0x80), used = word(replacement + 0x80);
+    uint32_t used = word(replacement + 0x80);
     uint32_t mapped_blocks = (stock_used + MAP_BYTES - 1) / MAP_BYTES;
-    if (stock_used != boot.size || used > mapped_blocks * MAP_BYTES) {
+    if (used > mapped_blocks * MAP_BYTES) {
         region_report("%s\n", "Replacement exceeds the live\nROM's verified mapping.");
         goto done;
     }
@@ -421,6 +452,17 @@ static void install_safe_replacement(const char *root, const struct nrio_raw_inf
                 goto done;
             }
         }
+    }
+
+    if (original_missing) {
+        region_report("%s\n", "Reading original ROM from NAND.");
+        original = read_original_rom(mapped, stock_used);
+        if (!original) goto done;
+        original_length = stock_used;
+    }
+    if (!replacement_header(original, original_length) || word(original + 0x80) != stock_used) {
+        region_report("%s\n", "Original ROM or size is invalid.");
+        goto done;
     }
 
     uint32_t edit_sectors = (used + SECTOR - 1) / SECTOR;
@@ -479,7 +521,7 @@ static void install_stock_udisk(const char *root, const struct nrio_raw_info *in
         return;
     }
     size_t packed_size = 0;
-    uint8_t *payload = load_file(root, "udisk_eng.nds", UDISK_PACKED_BYTES, &packed_size);
+    uint8_t *payload = load_file(root, "udisk_eng.nds", UDISK_PACKED_BYTES, &packed_size, NULL);
     if (!payload) return;
     uint8_t *map = NULL;
     struct nrio_sector_patch *patches = NULL;
