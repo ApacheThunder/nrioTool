@@ -297,23 +297,31 @@ static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t
         goto done;
     }
     temporary[0] = '\0';
+    nrio_region_screen(title);
     region_report("Saved %lu block(s) to\n%s\n", (unsigned long)block_count, directory);
-    region_report("%s\n", title);
+    if (leave_padding_erased) puts("Page 0xE will be left erased.");
     if (log) fflush(log);
     if (!nrio_confirm_write()) {
+        nrio_region_screen("Write cancelled");
+        region_report("%s\n", "Cancelled before write.");
         if (log) fputs("Cancelled before write.\n", log);
         goto done;
     }
+
+    nrio_region_screen("Writing NAND");
+    puts("Opening verified backup.\nDo not turn off the console.");
     backup = fopen(path, "rb");
     char tag[sizeof(signature)];
     uint32_t saved_blocks;
     if (!backup || fread(tag, sizeof(tag), 1, backup) != 1 || memcmp(tag, signature, sizeof(tag)) ||
         fread(&saved_blocks, sizeof(saved_blocks), 1, backup) != 1 || saved_blocks != block_count) {
+        nrio_region_screen("Write stopped");
         region_report("%s\n", "Could not reopen block backup.");
         goto done;
     }
 
-    for (uint32_t i = 0; i < count;) {
+    uint32_t current_block = 1;
+    for (uint32_t i = 0; i < count; ++current_block) {
         uint32_t lba = patches[i].lba / block_sectors * block_sectors;
         uint32_t end = batch_limit(patches, count, i, lba, block_sectors);
         uint32_t header[4];
@@ -321,12 +329,19 @@ static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t
             fread(snapshot, info->workspace_bytes, 1, backup) != 1 ||
             header[0] != lba || header[1] != info->nand_id || header[2] != info->workspace_bytes ||
             header[3] != nrio_update_crc32(UINT32_MAX, snapshot, info->workspace_bytes)) {
+            nrio_region_screen("Write stopped");
             region_report("%s\n", "Backup changed or read failed.");
             goto done;
         }
-        region_report("Verifying block at 0x%08lX\n", (unsigned long)lba * SECTOR);
+        nrio_region_screen("Writing NAND");
+        printf("Block %lu/%lu at 0x%08lX\n", (unsigned long)current_block,
+               (unsigned long)block_count, (unsigned long)lba * SECTOR);
+        puts("Checking, writing, verifying.\nDo not turn off the console.");
+        if (log) fprintf(log, "Checking and writing block 0x%08lX.\n",
+                         (unsigned long)lba * SECTOR);
         if (!nrio_recovery_patch_snapshot(lba, snapshot, patches + i, end - i, true,
                                           !lba && leave_padding_erased)) {
+            nrio_region_screen("Write stopped");
             report_region_write_error();
             goto done;
         }
@@ -336,6 +351,7 @@ static void run_plan(const char *root, const struct nrio_raw_info *info, uint8_t
         }
         i = end;
     }
+    nrio_region_screen("Write complete");
     const char *result = leave_padding_erased
         ? "Other pages verified exactly.\nPage 0xE left erased."
         : "All rewritten blocks verified.";

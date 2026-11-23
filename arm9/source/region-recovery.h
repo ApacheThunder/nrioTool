@@ -25,6 +25,7 @@ struct nrio_boot_rom nrio_inspect_boot(uint32_t table, uint32_t sectors);
 const char *nrio_boot_kind_name(enum nrio_boot_kind kind);
 void nrio_install_region(const char *root, const struct nrio_raw_info *info,
                          void *snapshot, bool udisk);
+void nrio_region_screen(const char *heading);
 bool nrio_confirm_write(void);
 bool nrio_confirm_padding_erase(void);
 void nrio_show_write_error(void);

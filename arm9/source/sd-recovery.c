@@ -270,6 +270,13 @@ static bool valid_sd_safe_mode(const struct nrio_raw_info *info, const uint32_t 
     return !ferror(input);
 }
 
+void nrio_region_screen(const char *heading)
+{
+    consoleClear();
+    printf("%s\n\n", heading);
+    swiWaitForVBlank();
+}
+
 bool nrio_confirm_write(void)
 {
     puts("\nBack up this cart before writes\n"
@@ -287,7 +294,8 @@ bool nrio_confirm_write(void)
 
 bool nrio_confirm_padding_erase(void)
 {
-    puts("\nPage 0xE looks like padding.\n"
+    nrio_region_screen("Unstable NAND padding");
+    puts("Page 0xE looks like padding.\n"
          "Its reads disagree.\n"
          "Leave it erased if we write?\n\n"
          "A: allow   B: cancel");
