@@ -27,6 +27,7 @@ extern "C" {
 
 ITCM_CODE void setSCFG(bool allowSD);
 void runLaunchEngine (int language, u32 fileCluster, bool allowSD);
+bool runLaunchEngineFromMemory(const void *rom, u32 size);
 
 #ifdef __cplusplus
 }

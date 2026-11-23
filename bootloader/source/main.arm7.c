@@ -47,6 +47,7 @@
 #include "common.h"
 #include "tonccpy.h"
 #include "my_fat.h"
+#include "ram-launch.h"
 /*-------------------------------------------------------------------------
 External functions
 --------------------------------------------------------------------------*/
@@ -60,6 +61,7 @@ static int useTwlCfg = 0;
 static int twlCfgLang = 0;
 
 static unsigned long storedFileCluster;
+static u32 ramImageSize;
 
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // Important things
@@ -329,7 +331,12 @@ static void arm7_resetMemory (void) {
 	arm7_clearmem ((void*)0x037F8000, 96*1024);
 
 	// clear most of EXRAM - except after 0x022FD800, which has the ARM9 code
-	arm7_clearmem ((void*)0x02000000, 0x002FD800);
+	if (ramImageSize) {
+		arm7_clearmem((void *)0x02000000, NRIO_RAM_IMAGE - 0x02000000);
+		arm7_clearmem((void *)(NRIO_RAM_IMAGE + ramImageSize), 0x022FD800 - NRIO_RAM_IMAGE - ramImageSize);
+	} else {
+		arm7_clearmem((void*)0x02000000, 0x002FD800);
+	}
 
 	// clear last part of EXRAM, skipping the ARM9's section
 	arm7_clearmem ((void*)0x023FE000, 0x2000);
@@ -400,6 +407,17 @@ static void arm7_loadBinary (aFile File) {
 	setMemoryAddress(ndsHeader);
 }
 
+static void arm7_loadMemBinary(void)
+{
+	const u8 *rom = (const u8 *)NRIO_RAM_IMAGE;
+	tonccpy((void *)NDS_HEADER, rom, 0x170);
+	ndsHeader = (tNDSHeader *)NDS_HEADER;
+	tonccpy(ndsHeader->arm9destination, rom + ndsHeader->arm9romOffset, ndsHeader->arm9binarySize);
+	tonccpy(ndsHeader->arm7destination, rom + ndsHeader->arm7romOffset, ndsHeader->arm7binarySize);
+	arm7_clearmem((void *)NRIO_RAM_IMAGE, ramImageSize);
+	setMemoryAddress(ndsHeader);
+}
+
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 // Main function
 void arm7_main (void) {
@@ -416,16 +434,20 @@ void arm7_main (void) {
 	if ((tmpData->cachedChipID != 0) && (tmpData->cachedChipID != 0xFFFFFFFF))chipID = tmpData->cachedChipID;
 	allowSD = tmpData->allowSD;
 	
-	// Init card
-	if(!FAT_InitFiles(true))errorOutput(ERR_SDINIT, true);
-	
+	ramImageSize = tmpData->ramImageSize;
+
 	aFile file;
 
-	getFileFromCluster(&file, storedFileCluster);
-	
-	if ((file.firstCluster < CLUSTER_FIRST) || (file.firstCluster >= CLUSTER_EOF))errorOutput(ERR_FILELOAD, true);
+	if (ramImageSize) {
+		if (!nrio_ram_image_valid((const u32 *)NRIO_RAM_IMAGE, ramImageSize))
+			errorOutput(ERR_FILELOAD, true);
+	} else {
+		if (!FAT_InitFiles(true)) errorOutput(ERR_SDINIT, true);
+		getFileFromCluster(&file, storedFileCluster);
 
-	if (file.firstCluster == CLUSTER_FREE)errorOutput(ERR_FILELOAD, true);
+		if (file.firstCluster < CLUSTER_FIRST || file.firstCluster >= CLUSTER_EOF)
+			errorOutput(ERR_FILELOAD, true);
+	}
 	
 	// Synchronise start
 	while (ipcRecvState() != ARM9_START);
@@ -446,7 +468,8 @@ void arm7_main (void) {
 	ipcSendState(ARM7_LOADBIN);
 
 	// Load the NDS file
-	arm7_loadBinary(file);
+	if (ramImageSize) arm7_loadMemBinary();
+	else arm7_loadBinary(file);
 	
 	errorOutput(ERR_STS_STARTBIN, false);
 	

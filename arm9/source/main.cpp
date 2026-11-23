@@ -20,6 +20,8 @@
 #include "read_card.h"
 #include "nds_card.h"
 #include "launch_engine.h"
+extern "C" const u8 usb_mount_bin[] __attribute__((weak));
+extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 
 #define NDS_HEADER 0x02FFFE00
 #define DSI_HEADER 0x02FFE000
@@ -1069,6 +1071,18 @@ static void DoStorageRecovery(int action) {
 	}
 }
 
+static bool UsbMountAvailable() {
+	return !wasDSi && usb_mount_bin && usb_mount_bin_end;
+}
+
+static void DoUsbMount() {
+	if (UsbMountAvailable()) {
+		u32 size = (uintptr_t)usb_mount_bin_end - (uintptr_t)usb_mount_bin;
+		runLaunchEngineFromMemory(usb_mount_bin, size);
+	}
+	DoError("Could not start USB FAT mount.");
+}
+
 static int AdvancedRecoveryMenu() {
 	consoleClear();
 	puts("Advanced NAND recovery\n");
@@ -1092,6 +1106,7 @@ int UtilityMenu(bool recoveryOnly = false) {
 	int value = -1;
 	consoleClear();
 	if (wasDSi && !recoveryOnly)printf("Press [A] to boot GodMode9Nrio\n");
+	else if (UsbMountAvailable()) puts("Press [A] to mount USB drive");
 	else printf("\n");
 	printf("\n");
 	printf("%s\n", recoveryOnly ? "" : "Press [X] to build update file");
@@ -1115,7 +1130,7 @@ int UtilityMenu(bool recoveryOnly = false) {
 		if (recoveryAvailable && (keysDown() & KEY_X) &&
 		    (keysHeld() & (KEY_L | KEY_R)) == (KEY_L | KEY_R)) return 9;
 		switch (keysDown()){
-			case KEY_A: 	{ if (wasDSi && !recoveryOnly)value = 0; } break;
+			case KEY_A: { if (UsbMountAvailable()) value = 10; else if (wasDSi && !recoveryOnly) value = 0; } break;
 			case KEY_X:		{ if (!recoveryOnly)value = 1; } break;
 			// case KEY_LEFT:		{ value = 2; } break;
 			case KEY_Y:		{ if (recoveryAvailable)value = 2; } break;
@@ -1146,6 +1161,7 @@ static void RunStorageRecoveryMenu(const char *root) {
 				int action = AdvancedRecoveryMenu();
 				if (action >= 0) nrioTool_sd_recovery(action, root);
 			} break;
+			case 10: DoUsbMount(); break;
 			case 4: return;
 		}
 	}
@@ -1271,10 +1287,16 @@ int main() {
 	scanKeys();
 	if(keysDown() & KEY_B)autoBootCart = true;
 	wasDSi = isDSiMode();
+	const bool usbOnly = UsbMountAvailable() && (keysHeld() & KEY_X);
 	bool recoveryOnly = (keysHeld() & KEY_L) != 0;
 	if (wasDSi && (REG_SCFG_EXT & BIT(31)))SCFGUnlocked = true;
 	defaultExceptionHandler();
 	BootSplashInit();
+	if (usbOnly) {
+		DoUsbMount();
+		fifoSendValue32(FIFO_USER_03, 1);
+		return 0;
+	}
 	
 	if (autoBootCart) {
 		printf("\n\n\n\n\n\n       Launching XuluMenu.\n          Please Wait...");
@@ -1397,6 +1419,7 @@ int main() {
 					case 6: { DoStorageRecovery(3); } break;
 					case 7: { DoStorageRecovery(4); } break;
 					case 8: { DoStorageRecovery(5); } break;
+					case 10: { DoUsbMount(); } break;
 					case 9: {
 						int action = AdvancedRecoveryMenu();
 						if (action >= 0) DoStorageRecovery(action);
