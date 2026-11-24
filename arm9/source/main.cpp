@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "ui.h"
+#include "nrio_card.h"
 #include "my_sd.h"
 #include "nitrofs.h"
 #include "tonccpy.h"
@@ -174,6 +175,8 @@ u32 CardInit(bool Silent = true, bool SkipSlotReset = false) {
 	tonccpy(gameCode, cartHeader->ndshdr.gameCode, 6);
 	ndsHeader = loadHeader(cartHeader); // copy twlHeaderTemp to ndsHeader location
 	u32 CardType = *(u32*)(DSI_HEADER + 0x08);
+	// Set up the cart after ROM init so the raw NAND backend can probe it.
+	InitCartNandReadMode(CardType);
 	DoWait();
 	if (!Silent) {
 		if (wasDSi && SCFGUnlocked) { iprintf("SCFG_MC Status:  %2X \n\n", REG_SCFG_MC); }
