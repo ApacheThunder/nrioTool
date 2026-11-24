@@ -106,7 +106,7 @@ After the app saves the current block to a separate backup folder, hold **L + R*
 
 ## Developer note
 
-The recovery features contributed from this fork were developed with assistance from AI language models. Some source code was generated or refined using AI, then reviewed, modified and integrated where appropriate.
+The recovery features were developed with assistance from AI language models. Some source code was generated or refined using AI, then reviewed, modified and integrated where appropriate.
 
 ## Credits
 lifehackerhansol: Improvements to file read logic.
