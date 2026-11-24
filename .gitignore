@@ -32,6 +32,7 @@
 *.app
 
 # devkitARM/libnds/3DS compiled stuff
+*.bin
 *.tmd
 *.cia
 *.cmd
@@ -42,11 +43,9 @@
 *.arm9
 *.elf
 build
-arm9/build
-data/load.bin
-data/bootstub.bin
 XuluMenu/data
 XuluMenu/build
+!data/usb_mount.bin
 
 
 # Stuff used to build custom banner/misc other things that shouldn't be in repo.
