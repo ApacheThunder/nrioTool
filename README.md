@@ -1,5 +1,5 @@
 # nrioTool
-_Dump hidden SRLs, back up and repair NAND, and access the FAT volume on N-Card and compatible clones._
+_A tool for dumping hidden SRL ROM sections from N-Card and its clones._
 
 (F-Card, Fire Card, DS-Linker and NeoFlash MK5 are known clones of N-Card). Some recovery options are also available for DLDI section of the cart.
 
@@ -11,22 +11,20 @@ Tested:
 - DS-Linker (8 Gbit and 16 Gbit).
 - ExpressCard (16 Gbit).
 
-## Getting started
+## Usage
 
-Build and launch `nrioTool.nds` from a homebrew launcher. In DSi mode, use a launcher with SD access and put any input files in `sd:/nrioFiles`. In DS mode, normal dumps use `fat:/nrioFiles` on the mounted DLDI device. nrioTool creates the output directory when it starts. Targeted NAND recovery in DS mode requires separate writable Slot-2 storage.
+* The older 1.7 release includes the 3DS CIA build that SylverReZ helped test. Build the current source for the features documented below. It produces `nrioTool.nds`. [1.7 release](https://github.com/ApacheThunder/nrioTool/releases/tag/1.7)
+* On DS or DS Lite, launch `nrioTool.nds` from your homebrew launcher. Normal dumps use `fat:/nrioFiles`. For NAND recovery, launch with a writable Slot-2 DLDI storage device and put `nrioFiles` on that device.
+* On DSi, put the `nrioFiles` folder at the root of the SD card and launch with SD access. The bundled FAT images are for 16 Gbit cards and include XMenu, uDisk, and its updater. You can edit the files in the FAT images with [WinImage](https://www.winimage.com/).
+* HiyaCFW users can copy the `title` folder from the older 1.9 release to the root of the SD card to install that version on the System Menu. You can also launch `nrioTool.nds` directly from Unlaunch. [1.9 release](https://github.com/ApacheThunder/nrioTool/releases/tag/1.9)
 
-Apache Thunder confirmed that nrioTool launches from XMenu on a DS Lite with a 2 GB N-Card after the Slot-1 init fix. Build the current source for the features documented here. The older 1.9 release includes a HiyaCFW `title` folder. [Upstream 1.9 release](https://github.com/ApacheThunder/nrioTool/releases/tag/1.9)
+## Features
 
-## Menu controls
-
-Use **Up/Down** to highlight a row, **A** to select it, and **B** to go back or exit. The Main Menu lists the available NAND dumps and opens the Utility Menu for cart checks, block-0 backups, USB mounting, GodMode9Nrio, and Advanced NAND tools. Available options depend on the console and mounted storage.
-
-### DLDI Menu
-
-The DLDI Menu is available in DSi mode. Use it to boot the cart menu, dump FAT sector 0 to `sd:/nrioFiles/nrio_fatsector0.bin`, or dump the FAT image to `sd:/nrioFiles/nrio_fatimage_dump.bin`. Restart nrioTool to return to the Main Menu after entering the DLDI Menu.
-
-- **Write default FAT image** selects one of the two bundled 16 Gbit images by detected FAT capacity. If `sd:/nrioFiles/nrio_customimage.img` exists, the tool uses it instead. This overwrites the cart's FAT contents.
-- **Restore FAT sector 0** has a known bug. It reads sector 0 again and incorrectly reports a successful restore.
+* **Main Menu** dumps the main, safe-mode, bootleg, or uDisk SRL as available, exports the banner, and runs a 3,300-sector raw NAND test dump.
+* **Utility Menu** checks the cart, backs up block 0, mounts USB with a detected Slot-2 writer, and opens **Advanced NAND tools**. **Boot GodMode9Nrio** is available in DSi mode.
+* **DLDI Menu** is available in DSi mode. It can boot the cart menu, dump FAT sector 0 to `sd:/nrioFiles/nrio_fatsector0.bin`, or dump the FAT image to `sd:/nrioFiles/nrio_fatimage_dump.bin`. Restart nrioTool to return to the Main Menu after entering the DLDI Menu.
+  * **Write default FAT image** selects one of the two bundled 16 Gbit images by detected FAT capacity. If `sd:/nrioFiles/nrio_customimage.img` exists, the tool uses it instead. This overwrites the cart's FAT contents.
+  * **Restore FAT sector 0** has a known bug. It reads sector 0 again and incorrectly reports a successful restore.
 
 ## Dump SRLs
 
@@ -37,6 +35,10 @@ The Main Menu probes Slot-1 with the read-only NAND backend and lists the SRL du
 The SRL and banner dumps save to the current storage's `nrioFiles` directory. They publish the finished file after a successful read and close. Press **B** during a dump to cancel. Move an existing output file before dumping it again.
 
 **Test NAND dump** uses the raw NAND reader to save the first 3,300 sectors as `nrio_data.bin`. Starting it replaces any existing file of that name. Cancelling with **B** keeps the partial file.
+
+## Menu controls
+
+Use **Up/Down** to highlight a row, **A** to select it, and **B** to go back or exit. Available options depend on the console and mounted storage.
 
 ## Targeted block-0 fixes
 
