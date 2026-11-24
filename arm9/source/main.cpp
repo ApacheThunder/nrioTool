@@ -21,6 +21,7 @@
 #include "nds_card.h"
 #include "launch_engine.h"
 #include "srl-dump.h"
+#include "slot2-usb.h"
 extern "C" const u8 usb_mount_bin[] __attribute__((weak));
 extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 
@@ -817,14 +818,16 @@ static void DoStorageRecovery(int action) {
 }
 
 static bool UsbMountAvailable() {
-	return !wasDSi && usb_mount_bin && usb_mount_bin_end;
+	return !wasDSi && usb_mount_bin && usb_mount_bin_end && nrio_slot2_usb_present();
 }
 
 static void DoUsbMount() {
-	if (UsbMountAvailable()) {
-		u32 size = (uintptr_t)usb_mount_bin_end - (uintptr_t)usb_mount_bin;
-		runLaunchEngineFromMemory(usb_mount_bin, size);
+	if (!UsbMountAvailable()) {
+		DoError("Insert the N-Card USB writer\nin Slot-2 to mount.", false);
+		return;
 	}
+	u32 size = (uintptr_t)usb_mount_bin_end - (uintptr_t)usb_mount_bin;
+	runLaunchEngineFromMemory(usb_mount_bin, size);
 	DoError("Could not start USB FAT mount.");
 }
 
@@ -1039,7 +1042,7 @@ int main() {
 	scanKeys();
 	if(keysDown() & KEY_B)autoBootCart = true;
 	wasDSi = isDSiMode();
-	const bool usbOnly = UsbMountAvailable() && (keysHeld() & KEY_X);
+	const bool usbOnly = (keysHeld() & KEY_X) && UsbMountAvailable();
 	bool recoveryOnly = (keysHeld() & KEY_L) != 0;
 	if (wasDSi && (REG_SCFG_EXT & BIT(31)))SCFGUnlocked = true;
 	defaultExceptionHandler();

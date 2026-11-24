@@ -63,11 +63,11 @@ Hold **L** at launch to jump straight to recovery before the regular Slot-1 init
 
 ## Mount the N-Card over USB
 
-Use a DS or DS Lite with the N-Card in Slot-1 and an N-Card USB writer in Slot-2. With the USB-enabled build of nrioTool, hold **X** at startup, or select **Mount USB drive** in the DS Utility Menu. Connect the writer to your computer. The cart's existing FAT volume appears as a removable drive, ready for copying ROMs and other files in either direction.
+Use a DS or DS Lite with the N-Card in Slot-1 and an N-Card USB writer in Slot-2. With the USB-enabled build of nrioTool and a detected USB writer, hold **X** at startup or select **Mount USB drive** in the DS Utility Menu. Connect the writer to your computer. The cart's existing FAT volume appears as a removable drive, ready for copying ROMs and other files in either direction.
 
 Eject the drive on the computer before pressing **START** on the DS to leave USB mode. The app requires a readable FAT volume and keeps raw NAND and recovery controls separate. Apache Thunder confirmed USB mounting and copying a file off the cart on hardware. USB writes have been tested in emulation.
 
-The companion build generates `data/usb_mount.bin` from the pinned `nrio-usb-disk` source. Build the companion before running nrioTool’s Makefile to include **Mount USB drive**. The prebuilt release includes the payload. [USB mount build instructions](https://github.com/nextcode4u/DLDI-REA-Decomp/tree/main/n-card/nrioTool#build) · [Pinned USB app source](https://github.com/ApacheThunder/nrio-usb-disk/tree/b9b781bf5deec5096cbc517432878430ac0e58c6)
+The companion build generates `data/usb_mount.bin` from the pinned `nrio-usb-disk` source. Build the companion before running nrioTool’s Makefile to include **Mount USB drive**. The prebuilt release includes the payload. [USB mount build instructions](https://github.com/nextcode4u/DLDI-REA-Decomp/tree/main/n-card/nrioTool#build) · [Pinned USB app source](https://github.com/ApacheThunder/nrio-usb-disk/tree/b9b781bf5deec5096cbc517432878430ac0e58c6) · [Slot-2 detection adapted from Asie’s code](https://github.com/ApacheThunder/R4iSDHC_Bootstrap/blob/main/arm9/include/common/nrio_detect.c)
 
 ## Check the cart
 
