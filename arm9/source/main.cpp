@@ -684,26 +684,40 @@ void DoTestDump() {
 		MountFATDevices(wasDSi);
 		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
 	}
-	FILE *dest;
-	if (sdMounted) { dest = fopen("sd:/nrioFiles/nrio_data.bin", "wb"); } else { dest = fopen("fat:/nrioFiles/nrio_data.bin", "wb"); }
+	const char *path = sdMounted ? "sd:/nrioFiles/nrio_data.bin" : "fat:/nrioFiles/nrio_data.bin";
+	FILE *dest = fopen(path, "wb");
+	if (!dest) {
+		DoError("Could not open nrio_data.bin.", false);
+		return;
+	}
 	InitCartNandReadMode(*(u32*)(DSI_HEADER + 0x08));
 	ProgressTracker = NUM_SECTORS;
 	textBuffer = "Dumping sectors to nrio_data.bin\n\nPress [B] to abort...\n\n\n";
 	textProgressBuffer = "Sectors Remaining: ";
-	// int Sector0Location = 44800;
-	// for (int i = Sector0Location; i < NUM_SECTORS + Sector0Location; i++) {
-	for (int i = 0; i < NUM_SECTORS; i++) {
-		nrio_readSector(ReadBuffer, (u32)(i * 0x200));
-		fwrite(ReadBuffer, 0x200, 1, dest); // Used Region
-		ProgressTracker--;
-		UpdateProgressText = true;
+	bool failed = false;
+	bool cancelled = false;
+	for (int i = 0; i < NUM_SECTORS; ++i) {
 		scanKeys();
-		if(keysDown() & KEY_B)break;
+		if (keysDown() & KEY_B) {
+			cancelled = true;
+			break;
+		}
+		nrio_readSector(ReadBuffer, (u32)i * SECTOR_SIZE);
+		if (fwrite(ReadBuffer, SECTOR_SIZE, 1, dest) != 1) {
+			failed = true;
+			break;
+		}
+		--ProgressTracker;
+		UpdateProgressText = true;
 	}
-	fclose(dest);
-	while(UpdateProgressText)swiWaitForVBlank();
+	if (fclose(dest)) failed = true;
+	while (UpdateProgressText) swiWaitForVBlank();
+	if (failed) {
+		DoError("Could not save nrio_data.bin.\nFile may be incomplete.", false);
+		return;
+	}
 	consoleClear();
-	printf("Sector dump finished!\n\n");
+	puts(cancelled ? "Dump cancelled.\nPartial file saved.\n" : "Sector dump finished!\n");
 	printf("Press [A] to return to menu\n\n");
 	printf("Press [B] to exit\n");
 	while(1) {
