@@ -1049,7 +1049,7 @@ static MenuAction MainMenu() {
 	const MenuItem items[] = {
 		{MenuAction::Utility, "Utility Menu"},
 		{MenuAction::DumpMain, "Dump main SRL", rawNandAvailable},
-		{MenuAction::DumpStage2, srlLayout.bootleg ? "Dump bootleg SRL" : "Dump Stage2 SRL", srlLayout.stage2_table != 0},
+		{MenuAction::DumpStage2, srlLayout.bootleg ? "Dump bootleg SRL" : "Dump Safe Mode SRL", srlLayout.stage2_table != 0},
 		{MenuAction::DumpUdisk, "Dump uDisk SRL", srlLayout.udisk_table != 0},
 		{MenuAction::DumpBanner, "Dump banner", rawNandAvailable},
 		{MenuAction::TestDump, "Test NAND dump"},
@@ -1168,7 +1168,7 @@ int main() {
 			case MenuAction::Dldi: RunDldiMenu(); break;
 			case MenuAction::DumpMain: DoNandDump("stage1.bin", STAGE1OFFSET, STAGE1SECTORCOUNT); break;
 			case MenuAction::DumpStage2:
-				DoNandDump(srlLayout.bootleg ? "bootleg.nds" : "stage2.nds", srlLayout.stage2_table);
+				DoNandDump(srlLayout.bootleg ? "bootleg.nds" : "safe-original.nds", srlLayout.stage2_table);
 				break;
 			case MenuAction::DumpUdisk: DoNandDump("udisk.nds", srlLayout.udisk_table); break;
 			case MenuAction::DumpBanner:
