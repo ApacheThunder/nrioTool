@@ -145,7 +145,7 @@ void DoError(const char* Message, bool isFatal = true) {
 	}
 }
 
-void CardInit(bool Silent = true, bool SkipSlotReset = false) {
+u32 CardInit(bool Silent = true, bool SkipSlotReset = false) {
 	if (!Silent || !wasDSi)consoleClear();
 	DoWait(30);
 	if (!wasDSi) {
@@ -167,8 +167,8 @@ void CardInit(bool Silent = true, bool SkipSlotReset = false) {
 			if(keysDown() & KEY_A)break;
 		}
 	}
-	// Do cart init stuff to wake cart up. DLDI init may fail otherwise!
-	cardInit((sNDSHeaderExt*)cartHeader, SkipSlotReset);
+	const u32 status = cardInit((sNDSHeaderExt*)cartHeader, SkipSlotReset);
+	if (status) return status;
 	char gameCode[7] = {0};
 	tonccpy(gameTitle, cartHeader->ndshdr.gameTitle, 12);
 	tonccpy(gameCode, cartHeader->ndshdr.gameCode, 6);
@@ -184,6 +184,7 @@ void CardInit(bool Silent = true, bool SkipSlotReset = false) {
 		printf("Press any button to continue...");
 		do { swiWaitForVBlank(); scanKeys(); } while (!keysDown());
 	}
+	return 0;
 }
 
 static const DISC_INTERFACE *GetSlot2Storage() {
@@ -1066,10 +1067,19 @@ int main() {
 		fifoSendValue32(FIFO_USER_03, 1);
 		return 0;
 	}
-	MountFATDevices();
+	// A Slot-1 DLDI probes the cart during mount. Reinitialize the bus
+	// after the reinsert prompt before letting that driver use it.
+	const bool mountAfterCardInit = !wasDSi && !GetSlot2Storage();
+	if (!mountAfterCardInit) MountFATDevices();
 	toncset((void*)0x02000000, 0, 0x800);
-	CardInit();
-	
+	const u32 cardStatus = CardInit();
+	if (cardStatus) {
+		LoadTopScreenDebugSplash();
+		PrintToTop("Slot-1 init error: %02X\n", (int)cardStatus, true);
+		WarningPosted = true;
+	}
+	if (mountAfterCardInit) MountFATDevices();
+
 	if ((!sdMounted && wasDSi) || (!fatMounted && !wasDSi)) {
 		DoFATerror(true, wasDSi);
 		consoleClear();
@@ -1078,8 +1088,8 @@ int main() {
 	}
 	RefreshSrlLayout();
 	if (!rawNandAvailable) {
-		LoadTopScreenDebugSplash();
-		PrintToTop("Could not probe Slot-1 NAND.\n", -1, true);
+		if (!WarningPosted) LoadTopScreenDebugSplash();
+		PrintToTop("Could not probe Slot-1 NAND.\n", -1, !WarningPosted);
 		WarningPosted = true;
 	}
 	if (autoBootCart) { SetSCFG(); DoCartBoot(); }
