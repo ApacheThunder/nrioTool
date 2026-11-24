@@ -801,61 +801,6 @@ static void DoSrlDump(const char *name, u32 table = 0) {
 	} while (!(keysDown() & (KEY_A | KEY_B)));
 }
 
-// Not working yet
-/*void DoBannerWrite() {
-	consoleClear();
-	DoWait(60);
-	printf("About to write banner!\n\n");
-	printf("Press A to continue.\n");
-	printf("Press B to abort.\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A)break;
-		if(keysDown() & KEY_B)return;
-	}
-	toncset((void*)0x02000000, 0, 0x800);
-	consoleClear();
-	printf("Reading banner please wait...\n\n");
-	// CardInit();
-	if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) {
-		MountFATDevices(wasDSi);
-		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
-	}
-	DoWait(2);
-	consoleClear();
-	FILE *bannerFile;
-	if (sdMounted) { bannerFile = fopen("sd:/nrioFiles/banner.bin", "rb"); } else { bannerFile = fopen("fat:/nrioFiles/banner.bin", "rb"); }
-	if (!bannerFile) { DoError("ERROR: Failed to read banner\nfile!\n\n"); return; }
-	fread((void*)UPDATEBUFFER, 1, 0xA00, bannerFile);
-	printf("Writing banner.bin to cart...\nPlease Wait...\n\n\n");
-	// int Sectors = 5;
-	// ProgressTracker = Sectors;
-	// textBuffer = "Writing banner.bin to cart...\nPlease Wait...\n\n\n";
-	// textProgressBuffer = "Sectors Remaining: ";
-	// UpdateProgressText = true;
-	// for (int i = 0; i < Sectors; i++){
-		// nrio_writeSector((stage2Header->bannerOffset + (u32)(i * 0x200)), (void*)((u32)UPDATEBUFFER + (u32)(i * 0x200)));
-	nrio_writeSectors(0x2000, UPDATEBUFFER, 0x800);
-	nrio_writeSectors(0x2800, UPDATEBUFFER, 0x800);
-		// ProgressTracker--;
-		// UpdateProgressText = true;
-	// }
-	// UpdateProgressText = true;
-	fclose(bannerFile);
-	CardInit();
-	consoleClear();
-	printf("Banner write finished!\n\n");
-	printf("Press A to return to main menu!\n");
-	printf("Press B to exit!\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) return;
-		if(keysDown() & KEY_B) { ErrorState = true; return; }
-	}
-}*/
-
 extern "C" void nrioTool_sd_recovery(int action, const char *root);
 
 static const char *RecoveryStorageRoot() {
