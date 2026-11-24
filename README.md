@@ -65,9 +65,9 @@ Hold **L** at launch to jump straight to recovery before the regular Slot-1 init
 
 Use a DS or DS Lite with the N-Card in Slot-1 and an N-Card USB writer in Slot-2. With the USB-enabled build of nrioTool, hold **X** at startup, or select **Mount USB drive** in the DS Utility Menu. Connect the writer to your computer. The cart's existing FAT volume appears as a removable drive, ready for copying ROMs and other files in either direction.
 
-Eject the drive on the computer before pressing **START** on the DS to leave USB mode. The app requires a readable FAT volume and keeps raw NAND and recovery controls separate. The mount has been exercised with an emulated FAT volume. A physical DS and USB writer test is pending.
+Eject the drive on the computer before pressing **START** on the DS to leave USB mode. The app requires a readable FAT volume and keeps raw NAND and recovery controls separate. Apache Thunder confirmed USB mounting and copying a file off the cart on hardware. USB writes have been tested in emulation.
 
-See the integration build instructions to embed the USB payload when building this branch. [USB mount build instructions](https://github.com/nextcode4u/DLDI-REA-Decomp/tree/main/n-card/nrioTool#build)
+The companion build generates `data/usb_mount.bin` from the pinned `nrio-usb-disk` source. Build the companion before running nrioTool’s Makefile to include **Mount USB drive**. The prebuilt release includes the payload. [USB mount build instructions](https://github.com/nextcode4u/DLDI-REA-Decomp/tree/main/n-card/nrioTool#build) · [Pinned USB app source](https://github.com/ApacheThunder/nrio-usb-disk/tree/b9b781bf5deec5096cbc517432878430ac0e58c6)
 
 ## Check the cart
 
