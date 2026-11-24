@@ -39,7 +39,7 @@ enum {
 		ERR_SEC_NORM  = 0x13,
 		ERR_SEC_OTHR  = 0x14,
 		ERR_LOGO_CRC  = 0x15,
-		ERR_HEAD_CRC  = 0x16,
+		ERR_HEAD_CRC  = CARD_INIT_HEADER_CRC,
 } ERROR_CODES;
 
 // NAND Card commands
@@ -222,7 +222,7 @@ static void switchToTwlBlowfish(sNDSHeaderExt* ndsHeader) {
 		REG_AUXSPICNT=0;
 		//ioDelay2(167550);
 		for(i = 0; i < 25; i++) { swiWaitForVBlank(); }
-		REG_AUXSPICNT=CARD_CR1_ENABLE|CARD_CR1_IRQ;
+		REG_AUXSPICNTH = CARD_CR1_ENABLE | CARD_CR1_IRQ;
 		REG_ROMCTRL=CARD_nRESET|CARD_SEC_SEED;
 		while(REG_ROMCTRL&CARD_BUSY) ;
 		cardReset();
@@ -344,19 +344,25 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	REG_AUXSPICNT=0;
 	//ioDelay2(167550);
 	for(i = 0; i < 25; i++) { swiWaitForVBlank(); }
-	REG_AUXSPICNT=CARD_CR1_ENABLE|CARD_CR1_IRQ;
+	REG_AUXSPICNTH = CARD_CR1_ENABLE | CARD_CR1_IRQ;
 	REG_ROMCTRL=CARD_nRESET|CARD_SEC_SEED;
 	while(REG_ROMCTRL&CARD_BUSY) ;
 	cardReset();
 	while(REG_ROMCTRL&CARD_BUSY) ;
 
-	toncset(headerData, 0, 0x1000);
-	
-	// Read the header
-	cardParamCommand (CARD_CMD_HEADER_READ, 0,
-		CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
-		(void*)headerData, 0x200/sizeof(u32));
-
+	toncset(headerData, 0, sizeof(headerData));
+	toncset(ndsHeader, 0, sizeof(*ndsHeader));
+	// Validate the base header before acting on any fields from it.
+	for (unsigned attempt = 0; ; ++attempt) {
+		cardParamCommand(CARD_CMD_HEADER_READ, 0,
+			CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) |
+			CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
+			headerData, CARD_NDS_HEADER_SIZE / sizeof(u32));
+		tonccpy(ndsHeader, headerData, CARD_NDS_HEADER_SIZE);
+		if (ndsHeader->headerCRC16 == swiCRC16(0xFFFF, ndsHeader, 0x15E)) break;
+		if (attempt == 2) return ERR_HEAD_CRC;
+		swiWaitForVBlank();
+	}
 
 	iCardId=cardReadID(CARD_CLK_SLOW);
 	while(REG_ROMCTRL & CARD_BUSY);
@@ -365,8 +371,6 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	normalChip = (iCardId & BIT(31)) != 0; // ROM chip ID MSB
 	nandChip = (iCardId & BIT(27)) != 0; // Card has a NAND chip
 	
-	tonccpy(ndsHeader, headerData, 0x200);
-
 	if ((ndsHeader->unitCode != 0) || (ndsHeader->dsi_flags != 0)) {
 		// Extended header found
 		if(normalChip) {

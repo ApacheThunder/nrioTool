@@ -60,6 +60,7 @@ extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 
 tNDSHeader* ndsHeader = (tNDSHeader*)NDS_HEADER;
 tDSiHeader* cartHeader = (tDSiHeader*)DSI_HEADER;
+static bool cartHeaderValid;
 
 
 DTCM_DATA ALIGN(4) u8 ReadBuffer[SECTOR_SIZE];
@@ -169,7 +170,8 @@ u32 CardInit(bool Silent = true, bool SkipSlotReset = false) {
 		}
 	}
 	const u32 status = cardInit((sNDSHeaderExt*)cartHeader, SkipSlotReset);
-	if (status) return status;
+	cartHeaderValid = status == 0;
+	if (!cartHeaderValid) return status;
 	char gameCode[7] = {0};
 	tonccpy(gameTitle, cartHeader->ndshdr.gameTitle, 12);
 	tonccpy(gameCode, cartHeader->ndshdr.gameCode, 6);
@@ -672,29 +674,59 @@ void DoTestDump() {
 	consoleClear();
 	DoWait(60);
 	iprintf("About to dump %d sectors.\n\n", NUM_SECTORS);
-	printf("Press [A] to continue.\n\n");
-	printf("Press [B] to abort.\n");
-	while(1) {
+	// Keep D2 as the default when the source and FAT destination share Slot-1.
+	const bool sameCart = !wasDSi && !GetSlot2Storage();
+	const bool preferLegacy = sameCart && cartHeaderValid;
+	puts(preferLegacy ? "A Legacy D2   X Raw NAND" : "A Raw NAND   X Legacy D2");
+	puts("B Back");
+	bool legacy;
+	for (;;) {
 		swiWaitForVBlank();
 		scanKeys();
-		if(keysDown() & KEY_A)break;
-		if(keysDown() & KEY_B)return;
+		const u32 keys = keysDown();
+		if (keys & KEY_B) return;
+		if (keys & (KEY_A | KEY_X)) {
+			legacy = (keys & KEY_A) ? preferLegacy : !preferLegacy;
+			break;
+		}
 	}
 	if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) {
 		MountFATDevices(wasDSi);
 		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
 	}
+	if (legacy) {
+		if (!cartHeaderValid) {
+			DoError("Legacy D2 needs a valid header.", false);
+			return;
+		}
+		if (!InitCartNandReadMode(*(u32*)(DSI_HEADER + 0x08))) {
+			DoError("Could not start legacy D2 mode.", false);
+			return;
+		}
+	} else {
+		nrio_raw_info info;
+		if (!nrio_srl_open(&info)) {
+			DoError("Could not probe Slot-1 NAND.", false);
+			return;
+		}
+		if (info.sectors < NUM_SECTORS) {
+			nrio_recovery_shutdown();
+			DoError("NAND smaller than dump range.", false);
+			return;
+		}
+	}
 	const char *path = sdMounted ? "sd:/nrioFiles/nrio_data.bin" : "fat:/nrioFiles/nrio_data.bin";
 	FILE *dest = fopen(path, "wb");
 	if (!dest) {
+		if (!legacy) nrio_recovery_shutdown();
 		DoError("Could not open nrio_data.bin.", false);
 		return;
 	}
-	InitCartNandReadMode(*(u32*)(DSI_HEADER + 0x08));
 	ProgressTracker = NUM_SECTORS;
 	textBuffer = "Dumping sectors to nrio_data.bin\n\nPress [B] to abort...\n\n\n";
 	textProgressBuffer = "Sectors Remaining: ";
-	bool failed = false;
+	bool readFailed = false;
+	bool saveFailed = false;
 	bool cancelled = false;
 	for (int i = 0; i < NUM_SECTORS; ++i) {
 		scanKeys();
@@ -702,18 +734,28 @@ void DoTestDump() {
 			cancelled = true;
 			break;
 		}
-		nrio_readSector(ReadBuffer, (u32)i * SECTOR_SIZE);
+		const bool readOk = legacy ? nrio_readSector(ReadBuffer, i * SECTOR_SIZE)
+		                           : nrio_recovery_read(i, 1, ReadBuffer);
+		if (!readOk) {
+			readFailed = true;
+			break;
+		}
 		if (fwrite(ReadBuffer, SECTOR_SIZE, 1, dest) != 1) {
-			failed = true;
+			saveFailed = true;
 			break;
 		}
 		--ProgressTracker;
 		UpdateProgressText = true;
 	}
-	if (fclose(dest)) failed = true;
+	if (fclose(dest)) saveFailed = true;
+	if (!legacy) nrio_recovery_shutdown();
 	while (UpdateProgressText) swiWaitForVBlank();
-	if (failed) {
+	if (saveFailed) {
 		DoError("Could not save nrio_data.bin.\nFile may be incomplete.", false);
+		return;
+	}
+	if (readFailed) {
+		DoError("Could not read NAND.\nFile may be incomplete.", false);
 		return;
 	}
 	consoleClear();
@@ -1092,7 +1134,14 @@ int main() {
 	const u32 cardStatus = CardInit();
 	if (cardStatus) {
 		LoadTopScreenDebugSplash();
-		PrintToTop("Slot-1 init error: %02X\n", (int)cardStatus, true);
+		if (cardStatus == CARD_INIT_HEADER_CRC) {
+			const auto *header = reinterpret_cast<const sNDSHeaderExt *>(cartHeader);
+			PrintToTop("Slot-1 header CRC error (16)\n", -1, true);
+			PrintToTop("Header CRC %04X\n", header->headerCRC16, false);
+			PrintToTop("Read CRC   %04X\n", swiCRC16(0xFFFF, cartHeader, 0x15E), false);
+		} else {
+			PrintToTop("Slot-1 init error: %02X\n", (int)cardStatus, true);
+		}
 		WarningPosted = true;
 	}
 	if (mountAfterCardInit) MountFATDevices();
@@ -1109,7 +1158,9 @@ int main() {
 		PrintToTop("Could not probe Slot-1 NAND.\n", -1, !WarningPosted);
 		WarningPosted = true;
 	}
-	if (autoBootCart) { SetSCFG(); DoCartBoot(); }
+	if (rawNandAvailable && cardStatus)
+		PrintToTop("Raw NAND available.\n", -1, false);
+	if (autoBootCart && !cardStatus) { SetSCFG(); DoCartBoot(); }
 	// Enable vblank handler
 	irqSet(IRQ_VBLANK, vblankHandler);
 	

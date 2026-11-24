@@ -25,6 +25,7 @@
 
 #include "ndsheaderbanner.h"
 
+#define CARD_INIT_HEADER_CRC 0x16
 #define CARD_NDS_HEADER_SIZE (0x200)
 #define CARD_SECURE_AREA_OFFSET (0x4000)
 #define CARD_SECURE_AREA_SIZE (0x4000)
