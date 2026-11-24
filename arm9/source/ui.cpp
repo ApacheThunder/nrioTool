@@ -7,9 +7,12 @@
 
 #include "mainMenu.h"
 #include "mainMenuDebug.h"
+#include "advancedMenu.h"
+#include "advancedMenuDebug.h"
 #include "dldiMenu.h"
 #include "dldiMenuDebug.h"
 #include "utilityMenu.h"
+#include "utilityMenuDebug.h"
 #include "botConsole.h"
 
 static PrintConsole tpConsole;
@@ -20,7 +23,7 @@ static int bgSub;
 
 bool TopSelected = false;
 
-extern bool dldiDebugMode;
+extern bool debugMode;
 
 void SelectTopConsole() { consoleSelect(&tpConsole); }
 void SelectBotConsole() { consoleSelect(&btConsole); }
@@ -52,7 +55,7 @@ void LoadTopScreenDebugSplash() {
 }
 
 void LoadTopScreenDLDISplash() {
-	if (dldiDebugMode) {
+	if (debugMode) {
 		dmaCopy(dldiMenuDebugBitmap, bgGetGfxPtr(bg), 256*256);
 		dmaCopy(dldiMenuDebugPal, BG_PALETTE, 256*2);
 	} else {
@@ -67,6 +70,13 @@ void LoadTopScreenUtilitySplash() {
 	dmaCopy(utilityMenuPal, BG_PALETTE, 256*2);
 	BG_PALETTE[255] = RGB15(31,31,31);
 }
+
+void LoadTopScreenUtilityDebugSplash() {	
+	dmaCopy(utilityMenuDebugBitmap, bgGetGfxPtr(bg), 256*256);
+	dmaCopy(utilityMenuDebugPal, BG_PALETTE, 256*2);
+	BG_PALETTE[255] = RGB15(31,31,31);
+}
+
 
 void BootSplashInit() {
 	videoSetMode(MODE_4_2D);

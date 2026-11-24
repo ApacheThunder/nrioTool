@@ -95,7 +95,7 @@ static bool rawNandAvailable;
 const char* textBuffer = "X------------------------------X\nX------------------------------X";
 const char* textProgressBuffer = "X------------------------------X\nX------------------------------X";
 
-bool dldiDebugMode = false;
+bool debugMode = false;
 extern bool TopSelected;
 
 ITCM_CODE void SetSCFG() {
@@ -486,7 +486,7 @@ void DoImageDump() {
 	textBuffer = "Dumping sectors to\nnrio_fatimage_dump.bin\n\nPress [B] to abort...\n\n\n";
 	textProgressBuffer = "Blocks Remaining: ";
 	bool readEndedEarly = false;
-	UpdateDebugText = dldiDebugMode;
+	UpdateDebugText = debugMode;
 	for (int i = 0; i < ReadSize; i++) {
 		if (io_dldi_data->ioInterface.readSectors((i * 4), 4, FATBuffer)) {
 			fwrite(FATBuffer, 0x800, 1, dest); // Used Region
