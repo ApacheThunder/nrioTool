@@ -65,6 +65,6 @@ clean:
 	$(MAKE) -C arm9 clean
 	$(MAKE) -C arm7 clean
 	$(MAKE) -C bootloader clean
-	rm -rf data
+	rm -f data/load.bin data/bootstub.bin
 	rm -f $(TARGET).nds
 
