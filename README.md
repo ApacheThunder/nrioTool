@@ -104,6 +104,10 @@ If the cart stops booting, launch nrioTool from the DSi SD card or Slot-2 storag
 
 After the app saves the current block to a separate backup folder, hold **L + R** and press **A** to restore. It checks the live snapshot before erase and verifies every main and spare byte after writing. This restores block 0 only. If block 0 is erased and there is no prior backup, the narrower ARM7 repair can help only when its required copies survive. The new startup shortcut and full restore still need a physical DSi test.
 
+## Developer note
+
+The recovery features contributed from this fork were developed with assistance from AI language models. Some source code was generated or refined using AI, then reviewed, modified and integrated where appropriate.
+
 ## Credits
 lifehackerhansol: Improvements to file read logic.
 
