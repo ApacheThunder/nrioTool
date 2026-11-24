@@ -904,7 +904,6 @@ static void RunAdvancedMenu(const char *startupRecoveryRoot, bool recoveryAvaila
 		{MenuAction::ReplaceSafeMode, "Replace safe-mode ROM", recoveryAvailable},
 		{MenuAction::RepairUdisk, "Repair stock uDisk", recoveryAvailable},
 		{MenuAction::BuildUpdate, "Build update file", regular},
-		{MenuAction::TestDump, "Test NAND dump", regular},
 	};
 	while (!ErrorState) {
 		switch (PickAction("Advanced NAND tools", items)) {
@@ -915,7 +914,6 @@ static void RunAdvancedMenu(const char *startupRecoveryRoot, bool recoveryAvaila
 			case MenuAction::ReplaceSafeMode: RunRecoveryAction(6, startupRecoveryRoot); break;
 			case MenuAction::RepairUdisk: RunRecoveryAction(7, startupRecoveryRoot); break;
 			case MenuAction::BuildUpdate: DoUpdateConvert(); break;
-			case MenuAction::TestDump: DoTestDump(); break;
 			default: return;
 		}
 	}
@@ -1008,6 +1006,7 @@ static MenuAction MainMenu() {
 		{MenuAction::DumpMain, "Dump main SRL", rawNandAvailable},
 		{MenuAction::DumpStage2, srlLayout.bootleg ? "Dump bootleg SRL" : "Dump Stage2 SRL", srlLayout.stage2_table != 0},
 		{MenuAction::DumpUdisk, "Dump uDisk SRL", srlLayout.udisk_table != 0},
+		{MenuAction::TestDump, "Test NAND dump"},
 		{MenuAction::Dldi, "DLDI Menu", wasDSi},
 		{MenuAction::BootCart, "Boot cart menu", wasDSi},
 	};
@@ -1108,6 +1107,7 @@ int main() {
 				DoSrlDump(srlLayout.bootleg ? "bootleg.nds" : "stage2.nds", srlLayout.stage2_table);
 				break;
 			case MenuAction::DumpUdisk: DoSrlDump("udisk.nds", srlLayout.udisk_table); break;
+			case MenuAction::TestDump: DoTestDump(); break;
 			case MenuAction::BootCart: SetSCFG(); DoCartBoot(); break;
 			default: ErrorState = true; break;
 		}

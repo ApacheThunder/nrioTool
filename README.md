@@ -41,7 +41,7 @@ Files go to `sd:/nrioFiles` on DSi or `fat:/nrioFiles` in DS mode. Move an exist
 
 ## Menu controls
 
-Use **Up/Down** to highlight a row, **A** to select it, and **B** to go back or exit. Choose **Utility Menu** from the Main Menu for cart checks, block-0 backups, and USB mounting or GodMode9Nrio where available. Choose **Advanced NAND tools** for boot-area writes, update conversion, and test dumps.
+Use **Up/Down** to highlight a row, **A** to select it, and **B** to go back or exit. Choose **Utility Menu** from the Main Menu for cart checks, block-0 backups, and USB mounting or GodMode9Nrio where available. The read-only **Test NAND dump** is in the Main Menu. Choose **Advanced NAND tools** for boot-area writes and update conversion.
 
 **Back up block 0** saves `main.bin` and packed `spare.bin` in the next `sd:/nrioFiles/block0-NNN` directory.
 
