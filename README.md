@@ -39,7 +39,7 @@ The Main Menu probes Slot-1 with the read-only NAND backend and lists the SRL du
 
 Files go to `sd:/nrioFiles` on DSi or `fat:/nrioFiles` in DS mode. Move an existing dump before repeating it. Press **B** during a dump to cancel. A completed file appears only after the read and close succeed.
 
-**Test NAND dump** saves the first 3,300 sectors as `nrio_data.bin`. The confirmation screen offers both raw NAND and legacy D2 reads. Legacy D2 is the default for dumps onto the same Slot-1 cart when its ROM header passes validation. SD and Slot-2 storage default to raw NAND.
+**Test NAND dump** saves the first 3,300 sectors as `nrio_data.bin`. Press **A** for Raw NAND or **X** for the legacy D2 diagnostic.
 
 ## Menu controls
 

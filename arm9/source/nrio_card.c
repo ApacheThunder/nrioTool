@@ -31,7 +31,7 @@ static bool read_command(u8 command, u32 address, u32 flags, u32 *out, unsigned 
             if (++count > words) return false;
             idle = 0;
         } else if (!(status & (u32)CARD_BUSY)) {
-            return count == words;
+            return !out || count == words;
         }
     }
     return false;
@@ -44,6 +44,7 @@ bool InitCartNandReadMode(u32 card_type)
     const u32 probe_flags = CARD_nRESET | CARD_BLK_SIZE(7) | CARD_SEC_CMD |
                             BIT(20) | BIT(19) | BIT(14) | BIT(13);
     const u32 mode_flags = CARD_nRESET | CARD_BLK_SIZE(7) | BIT(17);
+    // Setup response data is unused. Some boards may complete without a word.
     return read_command(0x66, 0, probe_flags, NULL, 1) &&
            read_command(0xc1, 0x0d210000, mode_flags, NULL, 1) &&
            read_command(0xc1, 0x0fb00000, mode_flags, NULL, 1) &&

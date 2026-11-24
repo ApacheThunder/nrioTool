@@ -674,10 +674,7 @@ void DoTestDump() {
 	consoleClear();
 	DoWait(60);
 	iprintf("About to dump %d sectors.\n\n", NUM_SECTORS);
-	// Keep D2 as the default when the source and FAT destination share Slot-1.
-	const bool sameCart = !wasDSi && !GetSlot2Storage();
-	const bool preferLegacy = sameCart && cartHeaderValid;
-	puts(preferLegacy ? "A Legacy D2   X Raw NAND" : "A Raw NAND   X Legacy D2");
+	puts("A Raw NAND   X Legacy D2");
 	puts("B Back");
 	bool legacy;
 	for (;;) {
@@ -686,7 +683,7 @@ void DoTestDump() {
 		const u32 keys = keysDown();
 		if (keys & KEY_B) return;
 		if (keys & (KEY_A | KEY_X)) {
-			legacy = (keys & KEY_A) ? preferLegacy : !preferLegacy;
+			legacy = !(keys & KEY_A);
 			break;
 		}
 	}
@@ -694,16 +691,13 @@ void DoTestDump() {
 		MountFATDevices(wasDSi);
 		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
 	}
-	if (legacy) {
-		if (!cartHeaderValid) {
-			DoError("Legacy D2 needs a valid header.", false);
-			return;
-		}
-		if (!InitCartNandReadMode(*(u32*)(DSI_HEADER + 0x08))) {
-			DoError("Could not start legacy D2 mode.", false);
-			return;
-		}
-	} else {
+	if (legacy && !cartHeaderValid) {
+		DoError("Legacy D2 needs a valid header.", false);
+		return;
+	}
+	consoleClear();
+	if (!legacy) {
+		puts("Probing raw NAND...");
 		nrio_raw_info info;
 		if (!nrio_srl_open(&info)) {
 			DoError("Could not probe Slot-1 NAND.", false);
@@ -716,12 +710,23 @@ void DoTestDump() {
 		}
 	}
 	const char *path = sdMounted ? "sd:/nrioFiles/nrio_data.bin" : "fat:/nrioFiles/nrio_data.bin";
+	puts("Opening nrio_data.bin...");
 	FILE *dest = fopen(path, "wb");
 	if (!dest) {
 		if (!legacy) nrio_recovery_shutdown();
 		DoError("Could not open nrio_data.bin.", false);
 		return;
 	}
+	// Opening a file on Slot-1 FAT can change the cart mode.
+	if (legacy) {
+		puts("Starting legacy D2...");
+		if (!InitCartNandReadMode(*(u32*)(DSI_HEADER + 0x08))) {
+			fclose(dest);
+			DoError("Could not start legacy D2 mode.\nFile may be incomplete.", false);
+			return;
+		}
+	}
+	puts("Reading first NAND sector...");
 	ProgressTracker = NUM_SECTORS;
 	textBuffer = "Dumping sectors to nrio_data.bin\n\nPress [B] to abort...\n\n\n";
 	textProgressBuffer = "Sectors Remaining: ";
