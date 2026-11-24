@@ -758,7 +758,7 @@ static void RefreshSrlLayout() {
 	nrio_recovery_shutdown();
 }
 
-static void DoNandDump(const char *name, u32 address, u32 directSectors = 0) {
+static void DoNandDump(const char *name, u32 address, u32 directSectors = 0, bool padBanner = false) {
 	static u32 addresses[NRIO_SRL_MAP_ENTRIES];
 	alignas(4) static u8 buffer[NRIO_SRL_MAP_BLOCK];
 
@@ -821,6 +821,10 @@ static void DoNandDump(const char *name, u32 address, u32 directSectors = 0) {
 		if (!ok) break;
 	}
 
+	if (ok && !cancelled && padBanner) {
+		const u8 padding[0x40] = {};
+		ok = fwrite(padding, 1, sizeof(padding), dest) == sizeof(padding);
+	}
 	if (fclose(dest)) ok = false;
 	nrio_recovery_shutdown();
 	if (ok && !cancelled) ok = rename(temporary, path) == 0;
@@ -1165,7 +1169,7 @@ int main() {
 				break;
 			case MenuAction::DumpUdisk: DoNandDump("udisk.nds", srlLayout.udisk_table); break;
 			case MenuAction::DumpBanner:
-				DoNandDump("banner.bin", NRIO_RAW_BANNER_OFFSET, NRIO_RAW_BANNER_BYTES / SECTOR_SIZE);
+				DoNandDump("banner.bin", NRIO_RAW_BANNER_OFFSET, NRIO_RAW_BANNER_BYTES / SECTOR_SIZE, /*padBanner=*/true);
 				break;
 			case MenuAction::TestDump: DoTestDump(); break;
 			case MenuAction::BootCart: SetSCFG(); DoCartBoot(); break;

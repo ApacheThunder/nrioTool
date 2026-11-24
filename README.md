@@ -39,7 +39,7 @@ The Main Menu probes Slot-1 with the read-only NAND backend and lists the SRL du
 
 Files go to `sd:/nrioFiles` on DSi or `fat:/nrioFiles` in DS mode. Move an existing dump before repeating it. Press **B** during a dump to cancel. A completed file appears only after the read and close succeed.
 
-**Dump banner** saves the first 2 KiB banner at NAND offset `0x2000` as `banner.bin`, the format accepted by **Install custom banner**. **Test NAND dump** saves the first 3,300 sectors as `nrio_data.bin` using the same raw NAND reader.
+**Dump banner** saves the first 2 KiB banner at NAND offset `0x2000` as `banner.bin`. It appends `0x40` zero bytes to produce a standard `0x840`-byte v1 banner that **Install custom banner** also accepts. **Test NAND dump** saves the first 3,300 sectors as `nrio_data.bin` using the same raw NAND reader.
 
 ## Menu controls
 
