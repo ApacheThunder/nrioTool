@@ -22,12 +22,13 @@
 #include "load_bin.h"
 #include "launch_engine.h"
 #include "read_card.h"
+#include "../../bootloader/source/ram-launch.h"
 
 #define LCDC_BANK_D (u16*)0x06860000
 
 #define TMP_DATA 0x02FFC000
 
-typedef struct sLauncherSettings { u32 cachedChipID; u16 language; u16 allowSD; unsigned long fileCluster; } tLauncherSettings;
+typedef struct sLauncherSettings { u32 cachedChipID; u16 language; u16 allowSD; unsigned long fileCluster; u32 ramImageSize; } tLauncherSettings;
 
 void vramcpy (void* dst, const void* src, int len) {
 	u16* dst16 = (u16*)dst;
@@ -55,9 +56,9 @@ ITCM_CODE void setSCFG(bool allowSD) {
 	for (int i = 0; i < 8; i++) { while(REG_VCOUNT!=191); while(REG_VCOUNT==191); }
 }
 
-void runLaunchEngine (int language, u32 fileCluster, bool allowSD) {
+static void launchEngine(int language, u32 fileCluster, bool allowSD, u32 ramImageSize) {
 
-	u32 chipID = cardGetId();
+	u32 chipID = ramImageSize ? 0 : cardGetId();
 
 	irqDisable(IRQ_ALL);
 	// Direct CPU access to VRAM bank D
@@ -76,8 +77,10 @@ void runLaunchEngine (int language, u32 fileCluster, bool allowSD) {
 	if (language != -1)tmpData->language = language;
 	if (allowSD)tmpData->allowSD = 0x01;
 	tmpData->fileCluster = fileCluster;
-	
-	setSCFG(allowSD);
+	tmpData->ramImageSize = ramImageSize;
+	DC_FlushRange(tmpData, sizeof(*tmpData));
+
+	if (!ramImageSize) setSCFG(allowSD);
 	
 	// Return to passme loop
 	*(vu32*)0x02FFFFFC = 0;
@@ -87,3 +90,18 @@ void runLaunchEngine (int language, u32 fileCluster, bool allowSD) {
 	swiSoftReset();
 }
 
+
+
+void runLaunchEngine(int language, u32 fileCluster, bool allowSD)
+{
+    launchEngine(language, fileCluster, allowSD, 0);
+}
+
+bool runLaunchEngineFromMemory(const void *rom, u32 size)
+{
+    if (isDSiMode() || !nrio_ram_image_valid(rom, size)) return false;
+    memcpy((void *)NRIO_RAM_IMAGE, rom, size);
+    DC_FlushRange((void *)NRIO_RAM_IMAGE, size);
+    launchEngine(-1, 0, false, size);
+    return false;
+}
