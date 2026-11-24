@@ -939,49 +939,55 @@ static void RunRecoveryAction(int action, const char *startupRecoveryRoot) {
 	else DoStorageRecovery(action);
 }
 
-static void RunAdvancedMenu(const char *startupRecoveryRoot, bool recoveryAvailable) {
-	const bool regular = !startupRecoveryRoot;
+static void RunAdvancedMenu(const char *startupRecoveryRoot) {
 	const MenuItem items[] = {
-		{MenuAction::PatchSafeMode, "Patch safe mode for DSi", recoveryAvailable},
-		{MenuAction::InstallBanner, "Install custom banner", recoveryAvailable},
-		{MenuAction::RestoreArm7, "Restore banner ARM7", recoveryAvailable},
-		{MenuAction::RestoreBlock0, "Restore block 0", recoveryAvailable},
-		{MenuAction::ReplaceSafeMode, "Replace safe-mode ROM", recoveryAvailable},
-		{MenuAction::RepairUdisk, "Repair stock uDisk", recoveryAvailable},
-		{MenuAction::BuildUpdate, "Build update file", regular},
+		{MenuAction::InstallBanner, "Install custom banner"},
+		{MenuAction::PatchSafeMode, "Patch safe mode for DSi"},
+		{MenuAction::ReplaceSafeMode, "Replace safe-mode ROM"},
+		{MenuAction::RepairUdisk, "Repair stock uDisk"},
+		{MenuAction::SaveBlock0, "Dump block 0"},
+		{MenuAction::RestoreBlock0, "Restore block 0"},
+		{MenuAction::RestoreArm7, "Restore banner ARM7"},
 	};
 	while (!ErrorState) {
 		switch (PickAction("Advanced NAND tools", items)) {
-			case MenuAction::PatchSafeMode: RunRecoveryAction(0, startupRecoveryRoot); break;
 			case MenuAction::InstallBanner: RunRecoveryAction(1, startupRecoveryRoot); break;
-			case MenuAction::RestoreArm7: RunRecoveryAction(3, startupRecoveryRoot); break;
-			case MenuAction::RestoreBlock0: RunRecoveryAction(4, startupRecoveryRoot); break;
+			case MenuAction::PatchSafeMode: RunRecoveryAction(0, startupRecoveryRoot); break;
 			case MenuAction::ReplaceSafeMode: RunRecoveryAction(6, startupRecoveryRoot); break;
 			case MenuAction::RepairUdisk: RunRecoveryAction(7, startupRecoveryRoot); break;
-			case MenuAction::BuildUpdate: DoUpdateConvert(); break;
+			case MenuAction::SaveBlock0: RunRecoveryAction(2, startupRecoveryRoot); break;
+			case MenuAction::RestoreBlock0: RunRecoveryAction(4, startupRecoveryRoot); break;
+			case MenuAction::RestoreArm7: RunRecoveryAction(3, startupRecoveryRoot); break;
 			default: return;
 		}
 	}
 }
+
+static void RunDldiMenu();
 
 static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
 	if (!WarningPosted) LoadTopScreenUtilitySplash();
 	const bool recoveryOnly = startupRecoveryRoot != nullptr;
 	while (!ErrorState) {
 		const bool recoveryAvailable = recoveryOnly || RecoveryStorageRoot() != nullptr;
+		const bool dsiToolsAvailable = wasDSi && !recoveryOnly;
 		const MenuItem items[] = {
-			{MenuAction::CheckCart, "Check cart", recoveryAvailable},
-			{MenuAction::SaveBlock0, "Back up block 0", recoveryAvailable},
+			{MenuAction::Advanced, "Advanced NAND tools", recoveryAvailable},
+			{MenuAction::Dldi, "DLDI Menu", dsiToolsAvailable},
+			{MenuAction::CheckCart, "Check Cart", recoveryAvailable},
+			{MenuAction::BootCart, "Boot Cart", dsiToolsAvailable},
+			{MenuAction::BootGm9, "Boot GodMode9Nrio", dsiToolsAvailable},
+			{MenuAction::BuildUpdate, "Build Update File", !recoveryOnly},
 			{MenuAction::Usb, "Mount USB drive", UsbMountAvailable()},
-			{MenuAction::BootGm9, "Boot GodMode9Nrio", wasDSi && !recoveryOnly},
-			{MenuAction::Advanced, "Advanced NAND tools"},
 		};
 		switch (PickAction("Utility Menu", items, recoveryOnly)) {
+			case MenuAction::Advanced: RunAdvancedMenu(startupRecoveryRoot); break;
+			case MenuAction::Dldi: RunDldiMenu(); break;
 			case MenuAction::CheckCart: RunRecoveryAction(5, startupRecoveryRoot); break;
-			case MenuAction::SaveBlock0: RunRecoveryAction(2, startupRecoveryRoot); break;
-			case MenuAction::Usb: DoUsbMount(); break;
+			case MenuAction::BootCart: SetSCFG(); DoCartBoot(); break;
 			case MenuAction::BootGm9: SetSCFG(); DoGM9iBoot(); break;
-			case MenuAction::Advanced: RunAdvancedMenu(startupRecoveryRoot, recoveryAvailable); break;
+			case MenuAction::BuildUpdate: DoUpdateConvert(); break;
+			case MenuAction::Usb: DoUsbMount(); break;
 			default: return;
 		}
 	}
@@ -1053,8 +1059,6 @@ static MenuAction MainMenu() {
 		{MenuAction::DumpUdisk, "Dump uDisk SRL", srlLayout.udisk_table != 0},
 		{MenuAction::DumpBanner, "Dump banner", rawNandAvailable},
 		{MenuAction::TestDump, "Test NAND dump"},
-		{MenuAction::Dldi, "DLDI Menu", wasDSi},
-		{MenuAction::BootCart, "Boot cart menu", wasDSi},
 	};
 	return PickAction("Main Menu", items, true);
 }
@@ -1165,7 +1169,6 @@ int main() {
 				if (!ErrorState) RefreshSrlLayout();
 				if (!WarningPosted) LoadTopScreenSplash();
 				break;
-			case MenuAction::Dldi: RunDldiMenu(); break;
 			case MenuAction::DumpMain: DoNandDump("stage1.bin", STAGE1OFFSET, STAGE1SECTORCOUNT); break;
 			case MenuAction::DumpStage2:
 				DoNandDump(srlLayout.bootleg ? "bootleg.nds" : "safe-original.nds", srlLayout.stage2_table);
@@ -1175,7 +1178,6 @@ int main() {
 				DoNandDump("banner.bin", NRIO_RAW_BANNER_OFFSET, NRIO_RAW_BANNER_BYTES / SECTOR_SIZE, /*padBanner=*/true);
 				break;
 			case MenuAction::TestDump: DoTestDump(); break;
-			case MenuAction::BootCart: SetSCFG(); DoCartBoot(); break;
 			default: ErrorState = true; break;
 		}
 		swiWaitForVBlank();

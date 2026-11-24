@@ -21,7 +21,7 @@ Tested:
 ## Features
 
 * **Main Menu** dumps the main, safe-mode, bootleg, or uDisk SRL as available, exports the banner, and runs a 3,300-sector raw NAND test dump.
-* **Utility Menu** checks the cart, backs up block 0, mounts USB with a detected Slot-2 writer, and opens **Advanced NAND tools**. **Boot GodMode9Nrio** is available in DSi mode.
+* **Utility Menu** opens **Advanced NAND tools**, checks the cart, builds update files, and mounts USB with a detected Slot-2 writer. In DSi mode it also provides **DLDI Menu**, **Boot Cart**, and **Boot GodMode9Nrio**.
 * **DLDI Menu** is available in DSi mode. It can boot the cart menu, dump FAT sector 0 to `sd:/nrioFiles/nrio_fatsector0.bin`, or dump the FAT image to `sd:/nrioFiles/nrio_fatimage_dump.bin`. Restart nrioTool to return to the Main Menu after entering the DLDI Menu.
   * **Write default FAT image** selects one of the two bundled 16 Gbit images by detected FAT capacity. If `sd:/nrioFiles/nrio_customimage.img` exists, the tool uses it instead. This overwrites the cart's FAT contents.
   * **Restore FAT sector 0** has a known bug. It reads sector 0 again and incorrectly reports a successful restore.
@@ -64,7 +64,7 @@ The Makefile builds `nrioTool.nds`, embeds the files in `nrioFiles` as NitroFS, 
 
 Launch `nrioTool.nds` from a Slot-2 storage device with its writable DLDI driver patched into the ROM. Put `nrioFiles` at the root of that device. The Utility Menu uses `fat:/nrioFiles` for backups and optional input files on this setup. In DSi mode it continues to use `sd:/nrioFiles`.
 
-Hold **L** at launch to jump straight to recovery before the regular Slot-1 initialization. **Back up block 0** saves a block-0 backup from the N-Card in Slot-1. Recovery is available in DS mode when nrioTool mounts a read/write Slot-2 DLDI device. This avoids storing its backups on the Slot-1 cart being repaired. The Slot-2 path has been checked in software and still needs a physical DS or DS Lite test.
+Hold **L** at launch to jump straight to recovery before the regular Slot-1 initialization. **Dump block 0** in **Advanced NAND tools** saves a block-0 backup from the N-Card in Slot-1. Recovery is available in DS mode when nrioTool mounts a read/write Slot-2 DLDI device. This avoids storing its backups on the Slot-1 cart being repaired. The Slot-2 path has been checked in software and still needs a physical DS or DS Lite test.
 
 ## Mount the N-Card over USB
 
@@ -76,11 +76,11 @@ The standard build includes the checked-in `data/usb_mount.bin` payload. The com
 
 ## Check the cart
 
-Select **Check cart** in the Utility Menu. The read-only check reports the NAND ID, detected erase geometry, and the addresses and recognized ROM types selected by the primary and secondary boot tables. The report is appended to `nrioFiles/CHECK-CART.TXT`. Press **X** while viewing the report to select a saved block-0 backup and check its file lengths, CRCs, and cart anchors. A layout match identifies the header and mapped ARM7 pattern. It cannot predict bootability.
+Select **Check Cart** in the Utility Menu. The read-only check reports the NAND ID, detected erase geometry, and the addresses and recognized ROM types selected by the primary and secondary boot tables. The report is appended to `nrioFiles/CHECK-CART.TXT`. Press **X** while viewing the report to select a saved block-0 backup and check its file lengths, CRCs, and cart anchors. A layout match identifies the header and mapped ARM7 pattern. It cannot predict bootability.
 
 ## Advanced NAND tools
 
-Select **Advanced NAND tools** in the Utility Menu. The NAND installers validate the target, save the affected erase blocks before confirmation, and verify each rewritten block. **Restore block 0** requires a matching source backup. **Build update file** is a file conversion action. It reads `nrioFiles/update.bin` and produces `nrioFiles/update_converted.bin` with the updater's `MKR` sector markers.
+Select **Advanced NAND tools** in the Utility Menu. The NAND installers validate the target, save the affected erase blocks before confirmation, and verify each rewritten block. **Restore block 0** requires a matching source backup. **Build Update File** in the Utility Menu is a file conversion action. It reads `nrioFiles/update.bin` and produces `nrioFiles/update_converted.bin` with the updater's `MKR` sector markers.
 
 - **Replace safe-mode ROM.** Put `safe-replacement.nds` in `nrioFiles` on the mounted storage. The tool reads the original safe-mode ROM from the cart. If you supply `safe-original.nds`, it must match the mapped ROM byte for byte through its declared length. The replacement must fit in the existing mapping and pass header, ARM load range, and spare checks. Files up to 256 KiB are accepted. The checker keeps padding beyond the replacement's declared size on NAND and can stage changes in more than one erase block.
 - **Repair stock uDisk.** Extract the tagged `udisk_eng.nds` from the archived stock BIOS updater and put it in `nrioFiles`. The tool verifies the known package by size, CRC, and sector ECC. It requires an intact recognized early safe-mode route and either the contiguous stock uDisk map or an erased secondary map with blank or already matching payload sectors. The map tail must be blank or already match the stock padding and footer. It writes and verifies the payload first, updates the secondary map last, and refuses to touch block 0. [Stock updater archive](https://github.com/m4x10187/fire-card-archive/tree/ced86434054e47dcca8d4e90efd25cc92f88d688/N-Card/Dumps/recovered)
@@ -103,7 +103,7 @@ After confirmation, the tool shows the current block and displays a separate com
 
 ## Recover block 0 from a backup
 
-While the cart is working, select **Back up block 0** in the Utility Menu. Keep `main.bin`, packed `spare.bin`, and `backup.info` together in the resulting `nrioFiles/block0-NNN` folder. Backups from earlier builds lack the metadata used by this menu.
+While the cart is working, select **Dump block 0** under **Utility Menu → Advanced NAND tools**. Keep `main.bin`, packed `spare.bin`, and `backup.info` together in the resulting `nrioFiles/block0-NNN` folder. Backups from earlier builds lack the metadata used by this menu.
 
 If the cart stops booting, launch nrioTool from the DSi SD card or Slot-2 storage while holding **L** to enter recovery before the regular cart initialization. The NAND bridge must still answer the raw probe. Choose **Advanced NAND tools**, then **Restore block 0**. Use **Left/Right** to choose the backup from that same cart, then press **A**. The app checks the file CRCs, NAND geometry, and saved data at `0x40000` and `0x80000`. Those data checks help catch a mismatched backup. Always use the original cart's backup.
 
