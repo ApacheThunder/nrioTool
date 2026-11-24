@@ -13,7 +13,6 @@
 #include <unistd.h>
 
 #include "ui.h"
-#include "nrio_card.h"
 #include "my_sd.h"
 #include "nitrofs.h"
 #include "tonccpy.h"
@@ -60,7 +59,6 @@ extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 
 tNDSHeader* ndsHeader = (tNDSHeader*)NDS_HEADER;
 tDSiHeader* cartHeader = (tDSiHeader*)DSI_HEADER;
-static bool cartHeaderValid;
 
 
 DTCM_DATA ALIGN(4) u8 ReadBuffer[SECTOR_SIZE];
@@ -170,14 +168,12 @@ u32 CardInit(bool Silent = true, bool SkipSlotReset = false) {
 		}
 	}
 	const u32 status = cardInit((sNDSHeaderExt*)cartHeader, SkipSlotReset);
-	cartHeaderValid = status == 0;
-	if (!cartHeaderValid) return status;
+	if (status) return status;
 	char gameCode[7] = {0};
 	tonccpy(gameTitle, cartHeader->ndshdr.gameTitle, 12);
 	tonccpy(gameCode, cartHeader->ndshdr.gameCode, 6);
 	ndsHeader = loadHeader(cartHeader); // copy twlHeaderTemp to ndsHeader location
 	u32 CardType = *(u32*)(DSI_HEADER + 0x08);
-	InitCartNandReadMode(CardType);
 	DoWait();
 	if (!Silent) {
 		if (wasDSi && SCFGUnlocked) { iprintf("SCFG_MC Status:  %2X \n\n", REG_SCFG_MC); }
@@ -517,7 +513,6 @@ void DoImageDump() {
 		scanKeys();
 		if(keysDown() & KEY_A) {
 			// CardInit();
-			// InitCartNandReadMode();
 			return; 
 		} else if(keysDown() & KEY_B) { 
 			ErrorState = true;
@@ -674,57 +669,37 @@ void DoTestDump() {
 	consoleClear();
 	DoWait(60);
 	iprintf("About to dump %d sectors.\n\n", NUM_SECTORS);
-	puts("A Raw NAND   X Legacy D2");
-	puts("B Back");
-	bool legacy;
+	puts("A Continue  B Back");
 	for (;;) {
 		swiWaitForVBlank();
 		scanKeys();
 		const u32 keys = keysDown();
 		if (keys & KEY_B) return;
-		if (keys & (KEY_A | KEY_X)) {
-			legacy = !(keys & KEY_A);
-			break;
-		}
+		if (keys & KEY_A) break;
 	}
 	if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) {
 		MountFATDevices(wasDSi);
 		if ((wasDSi && !sdMounted) || (!wasDSi && !fatMounted)) { DoFATerror(true, wasDSi); return; }
 	}
-	if (legacy && !cartHeaderValid) {
-		DoError("Legacy D2 needs a valid header.", false);
+	consoleClear();
+	puts("Probing raw NAND...");
+	nrio_raw_info info;
+	if (!nrio_srl_open(&info)) {
+		DoError("Could not probe Slot-1 NAND.", false);
 		return;
 	}
-	consoleClear();
-	if (!legacy) {
-		puts("Probing raw NAND...");
-		nrio_raw_info info;
-		if (!nrio_srl_open(&info)) {
-			DoError("Could not probe Slot-1 NAND.", false);
-			return;
-		}
-		if (info.sectors < NUM_SECTORS) {
-			nrio_recovery_shutdown();
-			DoError("NAND smaller than dump range.", false);
-			return;
-		}
+	if (info.sectors < NUM_SECTORS) {
+		nrio_recovery_shutdown();
+		DoError("NAND smaller than dump range.", false);
+		return;
 	}
 	const char *path = sdMounted ? "sd:/nrioFiles/nrio_data.bin" : "fat:/nrioFiles/nrio_data.bin";
 	puts("Opening nrio_data.bin...");
 	FILE *dest = fopen(path, "wb");
 	if (!dest) {
-		if (!legacy) nrio_recovery_shutdown();
+		nrio_recovery_shutdown();
 		DoError("Could not open nrio_data.bin.", false);
 		return;
-	}
-	// Opening a file on Slot-1 FAT can change the cart mode.
-	if (legacy) {
-		puts("Starting legacy D2...");
-		if (!InitCartNandReadMode(*(u32*)(DSI_HEADER + 0x08))) {
-			fclose(dest);
-			DoError("Could not start legacy D2 mode.\nFile may be incomplete.", false);
-			return;
-		}
 	}
 	puts("Reading first NAND sector...");
 	ProgressTracker = NUM_SECTORS;
@@ -739,9 +714,7 @@ void DoTestDump() {
 			cancelled = true;
 			break;
 		}
-		const bool readOk = legacy ? nrio_readSector(ReadBuffer, i * SECTOR_SIZE)
-		                           : nrio_recovery_read(i, 1, ReadBuffer);
-		if (!readOk) {
+		if (!nrio_recovery_read(i, 1, ReadBuffer)) {
 			readFailed = true;
 			break;
 		}
@@ -753,7 +726,7 @@ void DoTestDump() {
 		UpdateProgressText = true;
 	}
 	if (fclose(dest)) saveFailed = true;
-	if (!legacy) nrio_recovery_shutdown();
+	nrio_recovery_shutdown();
 	while (UpdateProgressText) swiWaitForVBlank();
 	if (saveFailed) {
 		DoError("Could not save nrio_data.bin.\nFile may be incomplete.", false);
@@ -785,7 +758,7 @@ static void RefreshSrlLayout() {
 	nrio_recovery_shutdown();
 }
 
-static void DoSrlDump(const char *name, u32 table = 0) {
+static void DoNandDump(const char *name, u32 address, u32 directSectors = 0) {
 	static u32 addresses[NRIO_SRL_MAP_ENTRIES];
 	alignas(4) static u8 buffer[NRIO_SRL_MAP_BLOCK];
 
@@ -815,7 +788,7 @@ static void DoSrlDump(const char *name, u32 table = 0) {
 		return;
 	}
 	u32 blocks = 1;
-	if (table && !nrio_srl_plan(table, info.sectors, addresses, &blocks)) {
+	if (!directSectors && !nrio_srl_plan(address, info.sectors, addresses, &blocks)) {
 		nrio_recovery_shutdown();
 		DoError("Invalid or unreadable SRL map.", false);
 		return;
@@ -827,7 +800,7 @@ static void DoSrlDump(const char *name, u32 table = 0) {
 		DoError("Could not create the dump file.", false);
 		return;
 	}
-	const u32 sectors = table ? NRIO_SRL_MAP_BLOCK / SECTOR_SIZE : STAGE1SECTORCOUNT;
+	const u32 sectors = directSectors ? directSectors : NRIO_SRL_MAP_BLOCK / SECTOR_SIZE;
 	bool ok = true;
 	bool cancelled = false;
 	for (u32 i = 0; i < blocks; ++i) {
@@ -841,9 +814,9 @@ static void DoSrlDump(const char *name, u32 table = 0) {
 			printf("Dumping %s\nBlock %lu of %lu\n\nB Cancel",
 			       name, (unsigned long)i + 1, (unsigned long)blocks);
 		}
-		const u32 address = table ? addresses[i] : STAGE1OFFSET;
+		const u32 blockAddress = directSectors ? address : addresses[i];
 		const size_t bytes = sectors * SECTOR_SIZE;
-		ok = nrio_recovery_read(address / SECTOR_SIZE, sectors, buffer) &&
+		ok = nrio_recovery_read(blockAddress / SECTOR_SIZE, sectors, buffer) &&
 		     fwrite(buffer, 1, bytes, dest) == bytes;
 		if (!ok) break;
 	}
@@ -853,7 +826,7 @@ static void DoSrlDump(const char *name, u32 table = 0) {
 	if (ok && !cancelled) ok = rename(temporary, path) == 0;
 	if (!ok || cancelled) {
 		remove(temporary);
-		if (!cancelled) DoError("Could not read or save the SRL.", false);
+		if (!cancelled) DoError("Could not read or save the dump.", false);
 		return;
 	}
 	consoleClear();
@@ -895,7 +868,7 @@ static void DoUsbMount() {
 enum class MenuAction {
 	Back,
 	Utility, Dldi,
-	DumpMain, DumpStage2, DumpUdisk, TestDump,
+	DumpMain, DumpStage2, DumpUdisk, DumpBanner, TestDump,
 	BootCart, BootGm9, Usb,
 	CheckCart, SaveBlock0, Advanced, BuildUpdate,
 	PatchSafeMode, InstallBanner, RestoreArm7, RestoreBlock0, ReplaceSafeMode, RepairUdisk,
@@ -1071,6 +1044,7 @@ static MenuAction MainMenu() {
 		{MenuAction::DumpMain, "Dump main SRL", rawNandAvailable},
 		{MenuAction::DumpStage2, srlLayout.bootleg ? "Dump bootleg SRL" : "Dump Stage2 SRL", srlLayout.stage2_table != 0},
 		{MenuAction::DumpUdisk, "Dump uDisk SRL", srlLayout.udisk_table != 0},
+		{MenuAction::DumpBanner, "Dump banner", rawNandAvailable},
 		{MenuAction::TestDump, "Test NAND dump"},
 		{MenuAction::Dldi, "DLDI Menu", wasDSi},
 		{MenuAction::BootCart, "Boot cart menu", wasDSi},
@@ -1185,11 +1159,14 @@ int main() {
 				if (!WarningPosted) LoadTopScreenSplash();
 				break;
 			case MenuAction::Dldi: RunDldiMenu(); break;
-			case MenuAction::DumpMain: DoSrlDump("stage1.bin"); break;
+			case MenuAction::DumpMain: DoNandDump("stage1.bin", STAGE1OFFSET, STAGE1SECTORCOUNT); break;
 			case MenuAction::DumpStage2:
-				DoSrlDump(srlLayout.bootleg ? "bootleg.nds" : "stage2.nds", srlLayout.stage2_table);
+				DoNandDump(srlLayout.bootleg ? "bootleg.nds" : "stage2.nds", srlLayout.stage2_table);
 				break;
-			case MenuAction::DumpUdisk: DoSrlDump("udisk.nds", srlLayout.udisk_table); break;
+			case MenuAction::DumpUdisk: DoNandDump("udisk.nds", srlLayout.udisk_table); break;
+			case MenuAction::DumpBanner:
+				DoNandDump("banner.bin", NRIO_RAW_BANNER_OFFSET, NRIO_RAW_BANNER_BYTES / SECTOR_SIZE);
+				break;
 			case MenuAction::TestDump: DoTestDump(); break;
 			case MenuAction::BootCart: SetSCFG(); DoCartBoot(); break;
 			default: ErrorState = true; break;

@@ -2,9 +2,10 @@
 #define NRIO_BANNER_PLAN_H
 
 #include "raw_nand.h"
+#include "recovery.h"
 
 enum {
-    BANNER_PAGE = 4,
+    BANNER_PAGE = NRIO_RAW_BANNER_OFFSET / PAGE_SIZE,
     BANNER_LBA = BANNER_PAGE * SECTORS_PER_PAGE,
     BANNER_EXPECTED_PAGES = 8,
 };
