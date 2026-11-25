@@ -1,7 +1,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
-#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -10,6 +9,7 @@
 #include <nds.h>
 
 #include "region-recovery.h"
+#include "boot-report.h"
 
 enum { SECTOR = 512, PAGE = 2048, SPARE = 64, MAP_BLOCK = 0x4000, BACKUP_LIMIT = 1000 };
 static const char backup_tag[8] = "NRIOB01";
@@ -86,7 +86,8 @@ static bool write_chunk(FILE *file, const uint8_t *data, size_t size, uint32_t *
     return true;
 }
 
-static bool save_backup(const char *root, bool prepared, const struct nrio_raw_info *initial)
+static bool save_backup_impl(const char *root, bool prepared, const struct nrio_raw_info *initial,
+                             const uint8_t *records)
 {
     struct backup_info info = {
         .nand_id = initial->nand_id,
@@ -105,12 +106,18 @@ static bool save_backup(const char *root, bool prepared, const struct nrio_raw_i
     FILE *spare = fopen(spare_path, "wb");
     bool ok = main && spare;
     for (uint32_t i = 0; ok && i < info.pages; ++i) {
-        ok = prepared ? nrio_recovery_copy_backup_page(i, page_data, spare_data)
-                      : nrio_recovery_read(i * (PAGE / SECTOR), PAGE / SECTOR, page_data);
+        if (records) {
+            const uint8_t *record = records + i * (PAGE + SPARE);
+            memcpy(page_data, record, PAGE);
+            memcpy(spare_data, record + PAGE, SPARE);
+        } else {
+            ok = prepared ? nrio_recovery_copy_backup_page(i, page_data, spare_data)
+                          : nrio_recovery_read(i * (PAGE / SECTOR), PAGE / SECTOR, page_data);
+        }
         if (ok) ok = write_chunk(main, page_data, PAGE, &info.main_crc);
-        if (ok && prepared) ok = write_chunk(spare, spare_data, SPARE, &info.spare_crc);
+        if (ok && (prepared || records)) ok = write_chunk(spare, spare_data, SPARE, &info.spare_crc);
     }
-    if (ok && !prepared) {
+    if (ok && !prepared && !records) {
         struct nrio_raw_info spare_info;
         ok = select_view(NRIO_RAW_SPARE_READ, &spare_info) && spare_info.nand_id == initial->nand_id;
         for (uint32_t i = 0; ok && i < info.pages * SPARE / SECTOR; ++i) {
@@ -132,6 +139,17 @@ static bool save_backup(const char *root, bool prepared, const struct nrio_raw_i
     }
     printf("Saved block 0 to\n%s\n", directory);
     return true;
+}
+
+static bool save_backup(const char *root, bool prepared, const struct nrio_raw_info *initial)
+{
+    return save_backup_impl(root, prepared, initial, NULL);
+}
+
+static bool save_snapshot_block0(const char *root, const struct nrio_raw_info *info,
+                                 const uint8_t *records)
+{
+    return save_backup_impl(root, false, info, records);
 }
 
 static int next_backup(const bool available[BACKUP_LIMIT], int index, int direction)
@@ -377,7 +395,7 @@ static void install_banner(const char *root, const struct nrio_raw_info *info)
         puts("Could not save the block-0 backup.");
         return;
     }
-    puts("First banner page at 0x2000.");
+    puts("Both banner copies will update.");
     if (nrio_confirm_write()) {
         puts("Rewriting and verifying block 0.");
         if (nrio_recovery_install_sd_banner()) puts("Banner install verified.");
@@ -440,91 +458,64 @@ static void restore_saved_block0(const char *root, const struct nrio_raw_info *i
     }
 }
 
-static void check_log(FILE *file, const char *format, ...)
+static void check_cart(const char *root)
 {
-    va_list args;
-    va_start(args, format);
-    vprintf(format, args);
-    va_end(args);
-    if (file) {
-        va_start(args, format);
-        vfprintf(file, format, args);
-        va_end(args);
-    }
-}
-
-static void check_cart(const char *root, const struct nrio_raw_info *info)
-{
-    char path[56];
-    snprintf(path, sizeof(path), "%s/CHECK-CART.TXT", root);
-    FILE *log = fopen(path, "a");
-    check_log(log, "NAND ID %08lX\n%lu pages per erase block\n%lu physical sectors\n",
-              (unsigned long)info->nand_id, (unsigned long)nrio_recovery_pages_per_block(),
-              (unsigned long)info->sectors);
-    const uint32_t tables[] = {NRIO_RAW_PRIMARY_TABLE, NRIO_RAW_SECONDARY_TABLE};
-    for (unsigned i = 0; i < 2; ++i) {
-        struct nrio_boot_rom rom = nrio_inspect_boot(tables[i], info->sectors);
-        check_log(log, "\n%s table 0x%lX\n%s\n", i ? "Secondary" : "Primary",
-                  (unsigned long)tables[i], nrio_boot_kind_name(rom.kind));
-        if (rom.address) check_log(log, "ROM 0x%08lX, size 0x%lX\n",
-                                   (unsigned long)rom.address, (unsigned long)rom.size);
-        if (rom.arm7_address) check_log(log, "ARM7 0x%08lX\n", (unsigned long)rom.arm7_address);
-        if (rom.handoff) check_log(log, "Handoff %08lX\n", (unsigned long)rom.handoff);
-    }
-    check_log(log, "\nRead only.\n");
-    if (!log || fflush(log)) puts("Could not save CHECK-CART.TXT.");
-    puts("X: check a backup   A: return");
-    uint32_t down;
+    struct nrio_raw_info info;
+    uint32_t id;
+    enum nrio_report_action action;
     do {
-        swiWaitForVBlank();
-        scanKeys();
-        down = keysDown();
-    } while (!(down & (KEY_X | KEY_A | KEY_B)));
-    if (down & KEY_X) {
-        int index = choose_backup(root, "Check block-0 backup");
-        if (index >= 0) {
+        consoleClear();
+        puts("Check Cart\n\nProbing Slot-1 NAND...");
+        const bool detected = select_view(NRIO_RAW_MAIN_READ, &info);
+        id = detected ? info.nand_id : 0;
+        action = nrio_boot_report(root, detected ? &info : NULL);
+    } while (action == NRIO_REPORT_RETRY);
+    if (action == NRIO_REPORT_BACKUP) {
+        if (!select_view(NRIO_RAW_MAIN_READ, &info) || info.nand_id != id) {
+            puts("Could not reread the same cart.\nPress A to return.");
+        } else {
+            int index = choose_backup(root, "Check block-0 backup");
+            if (index < 0) goto done;
             uint32_t length;
             uint8_t anchors[2][SECTOR];
-            static const char *const result[] = {
+            static const char *const summary[] = {
                 "CRCs and cart anchors match.", "Invalid backup.info.",
                 "CRCs pass. Cart anchors differ.", "Bad file size or read failed.",
                 "Main CRC mismatch.", "Spare CRC mismatch.", "Both CRCs mismatch.",
             };
-            struct nrio_raw_info geometry = *info;
-            geometry.workspace_bytes = nrio_recovery_pages_per_block() * (PAGE + SPARE);
-            enum backup_result status = load_backup_image(root, index, &geometry, &length, anchors);
-            check_log(log, "block0-%03d\n%s\n", index, result[status]);
-            puts("Press A to return.");
-            do {
-                swiWaitForVBlank();
-                scanKeys();
-            } while (!(keysDown() & KEY_A));
+            info.workspace_bytes = nrio_recovery_pages_per_block() * (PAGE + SPARE);
+            enum backup_result result = load_backup_image(root, index, &info, &length, anchors);
+            consoleClear();
+            printf("block0-%03d\n\n%s\n\nPress A to return.\n", index, summary[result]);
         }
+        do { swiWaitForVBlank(); scanKeys(); } while (!(keysDown() & (KEY_A | KEY_B)));
     }
-    if (log && fclose(log)) puts("Could not close CHECK-CART.TXT.");
+done:
+    nrio_recovery_shutdown();
 }
 
 void nrioTool_sd_recovery(int action, const char *root)
 {
     struct nrio_raw_info info;
     consoleClear();
+    if (action == 5) {
+        check_cart(root);
+        return;
+    }
     enum nrio_raw_mode mode = (action == 1 || action == 3)
         ? NRIO_RAW_SD_BANNER_INSTALL : NRIO_RAW_SAFE_MODE_INSTALL;
     if (action == 4) mode = NRIO_RAW_SD_BLOCK0_RESTORE;
-    if (action == 5) mode = NRIO_RAW_MAIN_READ;
-    if (action == 6 || action == 7) mode = NRIO_RAW_SD_REGION_INSTALL;
+    if (action >= 6 && action <= 9) mode = NRIO_RAW_SD_REGION_INSTALL;
     if (!select_view(mode, &info)) {
         puts("Could not probe Slot-1 NAND.");
-    } else if (action == 5) {
-        check_cart(root, &info);
-        nrio_recovery_shutdown();
-        return;
     } else if (action == 2) {
         if (!save_backup(root, false, &info)) puts("Could not save the block-0 backup.");
     } else if (!nrio_recovery_bind_workspace(workspace, sizeof(workspace))) {
         puts("Could not reserve the erase buffer.");
-    } else if (action == 6 || action == 7) {
-        nrio_install_region(root, &info, restore_image, action == 7);
+    } else if (action == 9) {
+        nrio_bypass_safe_mode(root, &info, restore_image, save_snapshot_block0);
+    } else if (action >= 6 && action <= 8) {
+        nrio_install_region(root, &info, restore_image, action >= 7, action == 8);
     } else if (action == 4) {
         restore_saved_block0(root, &info);
     } else if (action == 3) {

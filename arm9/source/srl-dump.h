@@ -21,6 +21,11 @@ struct nrio_srl_layout nrio_srl_detect(uint32_t sectors);
 bool nrio_srl_plan(uint32_t table, uint32_t sectors,
                    uint32_t addresses[NRIO_SRL_MAP_ENTRIES], uint32_t *blocks);
 
+/* Verify all ROM chunks lie below the filesystem metadata and fingerprint
+   the used map entries and first sector for the post-confirmation check. */
+bool nrio_srl_format_check(uint32_t table, uint32_t address, uint32_t bytes,
+                           uint32_t metadata_start, uint32_t *fingerprint);
+
 #ifdef __cplusplus
 }
 #endif

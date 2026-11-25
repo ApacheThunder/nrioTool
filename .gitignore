@@ -46,6 +46,7 @@ build
 XuluMenu/data
 XuluMenu/build
 !data/usb_mount.bin
+!assets/starter.zip
 
 
 # Stuff used to build custom banner/misc other things that shouldn't be in repo.

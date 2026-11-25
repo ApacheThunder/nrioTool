@@ -22,12 +22,13 @@
 #include "launch_engine.h"
 #include "srl-dump.h"
 #include "slot2-usb.h"
+#include "file-browser.h"
+#include "button-legend.h"
 extern "C" const u8 usb_mount_bin[] __attribute__((weak));
 extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 
 #define NDS_HEADER 0x02FFFE00
 #define DSI_HEADER 0x02FFE000
-#define FILECOPYBUFFER 0x02100000
 #define MAXFILESIZE (u32)0x00200000
 
 #define INITBUFFER  0x02000000
@@ -81,7 +82,6 @@ DTCM_DATA volatile bool nrioDLDIMounted = false;
 DTCM_DATA volatile bool sdMounted = false;
 DTCM_DATA volatile bool wasDSi = false;
 DTCM_DATA volatile bool ntrMode = false;
-DTCM_DATA volatile bool dldiWarned = false;
 DTCM_DATA volatile bool uDiskFileFound = false;
 DTCM_DATA volatile bool WarningPosted = false;
 DTCM_DATA volatile bool UpdateProgressText = false;
@@ -310,6 +310,18 @@ void DoUpdateConvert() {
 	}
 }
 
+// Stream bundled files. A fixed RAM buffer can overlap the BIOS payload.
+static bool CopyBundledFile(FILE *source, FILE *dest, u32 bytes) {
+    u8 buffer[2048];
+    while (bytes) {
+        u32 chunk = bytes < sizeof(buffer) ? bytes : sizeof(buffer);
+        if (fread(buffer, 1, chunk, source) != chunk ||
+            fwrite(buffer, 1, chunk, dest) != chunk) return false;
+        bytes -= chunk;
+    }
+    return true;
+}
+
 void DoCartBoot() {
 	consoleClear();
 	if(access("sd:/nrioFiles/xBootStrap.nds", F_OK) != 0 && nitroFSMounted) {
@@ -324,10 +336,10 @@ void DoCartBoot() {
 					printf("WARNING: xBootStrap not found!\n");
 					printf("Trying to use NitroFS copy.\n\n");
 					printf("Please wait...\n");
-					fread((void*)FILECOPYBUFFER, 1, fSize, src);
-					fwrite((void*)FILECOPYBUFFER, fSize, 1, dest);
+					bool copied = CopyBundledFile(src, dest, fSize);
 					fclose(src);
-					fclose(dest);
+					if (fclose(dest)) copied = false;
+					if (!copied) remove("sd:/nrioFiles/xBootStrap.nds");
 				}
 			}
 		}
@@ -370,10 +382,10 @@ void DoGM9iBoot() {
 					printf("WARNING: GM9Nrio not found!\n");
 					printf("Trying to use NitroFS copy.\n\n");
 					printf("Please wait...\n");
-					fread((void*)FILECOPYBUFFER, 1, fSize, src);
-					fwrite((void*)FILECOPYBUFFER, fSize, 1, dest);
+					bool copied = CopyBundledFile(src, dest, fSize);
 					fclose(src);
-					fclose(dest);
+					if (fclose(dest)) copied = false;
+					if (!copied) remove("sd:/nrioFiles/GM9Nrio.nds");
 				}
 			}
 		}
@@ -416,10 +428,10 @@ void DoSaveTestBoot() {
 					printf("nrioSaveTester not found!\n");
 					printf("Trying to use NitroFS copy.\n\n");
 					printf("Please wait...\n");
-					fread((void*)FILECOPYBUFFER, 1, fSize, src);
-					fwrite((void*)FILECOPYBUFFER, fSize, 1, dest);
+					bool copied = CopyBundledFile(src, dest, fSize);
 					fclose(src);
-					fclose(dest);
+					if (fclose(dest)) copied = false;
+					if (!copied) remove("sd:/nrioFiles/nrioSaveTester.nds");
 				}
 			}
 		}
@@ -522,150 +534,6 @@ void DoImageDump() {
 			return;
 		}
 	}
-}
-
-void DoImageRestore() {
-	consoleClear();
-	DoWait(60);
-	printf("About to write default fat image\n\n");
-	iprintf("Target Cart Capacity: %d\n\n", cartSize);
-	const char* FilePath = "NOTSUPPORTED";
-	if (cartSize == 2011584)FilePath = "sd:/nrioFiles/nrio_basicimage_2011584_16g.img";
-	if (cartSize == 1995712)FilePath = "sd:/nrioFiles/nrio_basicimage_1995712_16g.img";
-	if (access("sd:/nrioFiles/nrio_customimage.img", F_OK) == 0)FilePath = "sd:/nrioFiles/nrio_customimage.img"; // if present, will write this file over any other.
-	if (access(FilePath, F_OK) != 0 && nitroFSMounted) {
-		if (cartSize == 2011584)FilePath = "nitro:/nrio_basicimage_2011584_16g.img";
-		if (cartSize == 1995712)FilePath = "nitro:/nrio_basicimage_1995712_16g.img";
-	}
-	if (!memcmp(FilePath, "NOTSUPPORTED", 12)) {
-		printf("\nERROR: Cart capacity not\nsupported!\n");
-		printf("\nPress [A] to abort.\n");
-		while(1) {
-			swiWaitForVBlank();
-			scanKeys();
-			if(keysDown() & KEY_A)return;
-		}
-	}
-	puts("Back up this cart before writes\nwhenever possible.\n");
-	printf("\nPress [A] to continue.\n\n");
-	printf("Press [B] to abort.\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A)break;
-		if(keysDown() & KEY_B)return;
-	}
-	FILE *src = fopen(FilePath, "rb");
-	if (!src) { DoError("ERROR: Failed to find or open\nnrio_basicimage!\n"); return; }
-	fseek(src, 0, SEEK_END);
-	int fileSize = (int)(ftell(src) / 0x800) + 4;
-	u32 fSize = ftell(src);
-	fseek(src, 0, SEEK_SET);
-	ProgressTracker = (int)fileSize;
-	textBuffer = "Writing FAT image to cart.\nPlease Wait...\n\n\n";
-	textProgressBuffer = "Blocks Remaining: ";
-	for (int i = 0; i < fileSize; i++){
-		fseek(src, (i * 0x800), SEEK_SET);
-		fread(FATBuffer, 1, 0x800, src);
-		io_dldi_data->ioInterface.writeSectors((i * 4), 4, FATBuffer);
-		if (ProgressTracker < 4)ProgressTracker = 0;
-		ProgressTracker--;
-		UpdateProgressText = true;
-		if (fSize < (u32)(i * 0x800))break;
-	}
-	while(UpdateProgressText)swiWaitForVBlank();
-	fclose(src);
-	consoleClear();
-	printf("FAT image write finished!\n\n");
-	printf("Press [A] to return to DLDI menu\n\n");
-	printf("Press [B] to exit\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A) return;
-		if(keysDown() & KEY_B) { 
-			ErrorState = true;
-			return;
-		}
-	}
-	// if ((u64)fsize > driveSizeFree("fat:/")) { }
-}
-
-void DoSector0Dump() {
-	consoleClear();
-	DoWait(60);
-	printf("About to dump FAT sector 0.\n\n");
-	printf("Press [A] to continue.\n\n");
-	printf("Press [B] to abort.\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A)break;
-		if(keysDown() & KEY_B)return;
-	}
-	FILE *dest = fopen("sd:/nrioFiles/nrio_fatsector0.bin", "wb");
-	if (!dest) { DoError("ERROR: Failed to create file!"); return; }
-	io_dldi_data->ioInterface.readSectors(0, 1, ReadBuffer);
-	fwrite(ReadBuffer, 0x200, 1, dest);
-	fclose(dest);
-	consoleClear();
-	printf("Sector 0 dump finished!\n\n");
-	printf("Press [A] to return to DLDI menu\n");
-	printf("Press [B] to exit\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A)return;
-		if(keysDown() & KEY_B) { 
-			ErrorState = true;
-			return;
-		}
-	}
-	// fseek(dest, 0x200, SEEK_SET);
-	// if ((u64)fsize > driveSizeFree("fat:/")) { }
-}
-
-void DoSector0Restore() {
-	consoleClear();
-	DoWait(60);
-	printf("About to write FAT sector 0.\n\n");
-	puts("Back up this cart before writes\nwhenever possible.\n");
-	printf("Press [A] to continue.\n\n");
-	printf("Press [B] to abort.\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A)break;
-		if(keysDown() & KEY_B)return;
-	}
-	if (access("sd:/nrioFiles/nrio_fatsector0.bin", F_OK) != 0) {
-		DoError("ERROR: Failed to find\nnrio_fatsector0.bin!"); 
-		return;
-	}
-	FILE *src = fopen("sd:/nrioFiles/nrio_fatsector0.bin", "rb");
-	if (!src) { DoError("ERROR: Failed to open\nnrio_fatsector0.bin!"); return; }
-	fseek(src, 0, SEEK_END);
-	u32 fSectorSize = (ftell(src) / 0x200);
-	fseek(src, 0, SEEK_SET);
-	if (fSectorSize != 1) { DoError("ERROR: nrio_fatsector0.bin has incorrect size!"); return; }
-	fread(ReadBuffer, 1, 0x200, src);
-	io_dldi_data->ioInterface.readSectors(0, 1, ReadBuffer);
-	fclose(src);
-	consoleClear();
-	printf("Sector 0 write finished!\n");
-	printf("Press [A] to return to DLDI menu\n\n");
-	printf("Press [B] to exit\n");
-	while(1) {
-		swiWaitForVBlank();
-		scanKeys();
-		if(keysDown() & KEY_A)return;
-		if(keysDown() & KEY_B) { 
-			ErrorState = true;
-			return;
-		}
-	}
-	// fseek(dest, 0x200, SEEK_SET);
-	// if ((u64)fsize > driveSizeFree("fat:/")) { }
 }
 
 void DoTestDump() {
@@ -777,11 +645,22 @@ static void DoNandDump(const char *name, u32 address, u32 directSectors = 0, boo
 	}
 
 	const char *root = wasDSi ? "sd:/nrioFiles" : "fat:/nrioFiles";
-	char path[48], temporary[48];
-	snprintf(path, sizeof(path), "%s/%s", root, name);
-	snprintf(temporary, sizeof(temporary), "%s/%s.part", root, name);
-	if (access(path, F_OK) == 0 || access(temporary, F_OK) == 0) {
-		DoError("Move the existing dump or .part\nfile before dumping again.", false);
+	char path[56], temporary[56], outputName[32];
+	const bool numbered = !strcmp(name, "safe-original.nds");
+	bool available = false;
+	for (unsigned i = 0; i <= (numbered ? 999u : 0u); ++i) {
+		if (i == 0) snprintf(outputName, sizeof(outputName), "%s", name);
+		else snprintf(outputName, sizeof(outputName), "safe-original-%03u.nds", i);
+		snprintf(path, sizeof(path), "%s/%s", root, outputName);
+		snprintf(temporary, sizeof(temporary), "%s/%s.part", root, outputName);
+		if (access(path, F_OK) != 0 && access(temporary, F_OK) != 0) {
+			available = true;
+			break;
+		}
+	}
+	if (!available) {
+		DoError(numbered ? "No free safe-mode dump name." :
+		        "Move the existing dump or .part\nfile before dumping again.", false);
 		return;
 	}
 
@@ -837,7 +716,7 @@ static void DoNandDump(const char *name, u32 address, u32 directSectors = 0, boo
 		return;
 	}
 	consoleClear();
-	printf("Saved %s\n\nA Back", name);
+	printf("Saved %s\n\nA Back", outputName);
 	do {
 		swiWaitForVBlank();
 		scanKeys();
@@ -845,6 +724,9 @@ static void DoNandDump(const char *name, u32 address, u32 directSectors = 0, boo
 }
 
 extern "C" void nrioTool_sd_recovery(int action, const char *root);
+#include "udisk-setup.h"
+#include "format-origin.h"
+#include "sector-zero.h"
 
 static const char *RecoveryStorageRoot() {
 	if (wasDSi) return sdMounted ? "sd:/nrioFiles" : nullptr;
@@ -874,12 +756,13 @@ static void DoUsbMount() {
 
 enum class MenuAction {
 	Back,
-	Utility, Dldi,
+	Utility, Dldi, FileBrowser,
 	DumpMain, DumpStage2, DumpUdisk, DumpBanner, TestDump,
 	BootCart, BootGm9, Usb,
 	CheckCart, SaveBlock0, Advanced, BuildUpdate,
-	PatchSafeMode, InstallBanner, RestoreArm7, RestoreBlock0, ReplaceSafeMode, RepairUdisk,
-	DumpFatSector, RestoreFatSector, DumpFatImage, WriteFatImage,
+	PatchSafeMode, BypassSafeMode, InstallBanner, RestoreArm7, RestoreBlock0, ReplaceSafeMode, RepairUdisk, UdiskSetup, QuickFormat, FullFormat,
+	InstallUdisk, InstallXulu, SwitchXulu, CopyXMenu, RemoveUpdater,
+	DumpFatSector, RestoreFatSector, DumpFatImage, FormatHelp,
 };
 
 struct MenuItem {
@@ -902,18 +785,34 @@ static MenuAction PickAction(const char *title, const MenuItem (&items)[count], 
 	for (;;) {
 		if (redraw) {
 			consoleClear();
-			printf("%s\n\n", title);
-			size_t row = 2;
-			for (size_t i = 0; i < visibleCount; ++i) {
-				if (i && (visibleCount <= 7 || i % 2 == 0)) {
-					putchar('\n');
+			const size_t footer = MENU_CONTROLS_ROW - MENU_CONSOLE_TOP;
+			if (2 + visibleCount * 2 > footer + 1) {
+				// Long menus use a uniform one-row list. Keep the footer
+				// inside the visible screen even with older splash art.
+				const size_t footerRow = 24 - BottomConsoleRow() - 4;
+				const size_t rows = footerRow - 3;
+				const size_t from = selected < rows ? 0 : selected - rows + 1;
+				const size_t to = from + rows < visibleCount ? from + rows : visibleCount;
+				printf("%s\n", title);
+				if (visibleCount > rows)
+					printf("Options %lu-%lu of %lu\n", (unsigned long)(from + 1),
+					       (unsigned long)to, (unsigned long)visibleCount);
+				else putchar('\n');
+				for (size_t i = from; i < to; ++i)
+					printf("%c %s\n", i == selected ? '>' : ' ', visible[i]->label);
+				for (size_t row = 2 + to - from; row < footerRow; ++row) putchar('\n');
+				nrio_button_legend(exits ? "Up/Down A Select B Exit" : "Up/Down A Select B Back", nullptr);
+			} else {
+				printf("%s\n\n", title);
+				size_t row = 2;
+				for (size_t i = 0; i < visibleCount; ++i) {
+					if (i) { putchar('\n'); ++row; }
+					printf("%c %s\n", i == selected ? '>' : ' ', visible[i]->label);
 					++row;
 				}
-				printf("%c %s\n", i == selected ? '>' : ' ', visible[i]->label);
-				++row;
+				for (; row < footer; ++row) putchar('\n');
+				puts(exits ? "Up/Down  A Select  B Exit" : "Up/Down  A Select  B Back");
 			}
-			for (; row < 16; ++row) putchar('\n');
-			puts(exits ? "Up/Down  A Select  B Exit" : "Up/Down  A Select  B Back");
 			redraw = false;
 		}
 
@@ -939,11 +838,51 @@ static void RunRecoveryAction(int action, const char *startupRecoveryRoot) {
 	else DoStorageRecovery(action);
 }
 
+static bool launchedFromSd;
+
+static void RunUdiskSetupMenu(const char *backupRoot) {
+	const bool canFormat = nrio_can_format(launchedFromSd, wasDSi && sdMounted,
+	                                       !wasDSi && GetSlot2Storage(), fatMounted);
+	const MenuItem items[] = {
+		{MenuAction::QuickFormat, "Quick Format N-Card", canFormat},
+		{MenuAction::FullFormat, "Full Format N-Card", canFormat},
+		{MenuAction::FormatHelp, "Format unavailable", !canFormat},
+		{MenuAction::CheckCart, "Check Cart", !backupRoot},
+		{MenuAction::InstallUdisk, "Install stock uDisk 1.45"},
+		{MenuAction::InstallXulu, "Set up XuluMenu"},
+		{MenuAction::SwitchXulu, "Switch to XuluMenu"},
+		{MenuAction::CopyXMenu, "Copy stock/custom XMenu"},
+		{MenuAction::RemoveUpdater, "Delete old uDisk installer"},
+	};
+	for (;;) {
+		switch (PickAction("uDisk setup", items)) {
+			case MenuAction::QuickFormat: nrioTool_quick_format(backupRoot); break;
+			case MenuAction::FullFormat: nrioTool_full_format(backupRoot); break;
+			case MenuAction::FormatHelp:
+				DoError("Format needs a separate launch.\n"
+				        "Use DSi SD or a Slot-2 device.\n"
+				        "Slot-1 or unverified launch.\n"
+				        "No changes made.", false);
+				break;
+			case MenuAction::CheckCart: nrioTool_sd_recovery(5, backupRoot); break;
+			case MenuAction::InstallUdisk: nrioTool_sd_recovery(8, backupRoot); break;
+			case MenuAction::InstallXulu: nrioTool_udisk_setup(NRIO_UDISK_XULU_FRESH, backupRoot); break;
+			case MenuAction::SwitchXulu: nrioTool_udisk_setup(NRIO_UDISK_XULU_SWITCH, backupRoot); break;
+			case MenuAction::CopyXMenu: nrioTool_udisk_setup(NRIO_UDISK_COPY_MENU, backupRoot); break;
+			case MenuAction::RemoveUpdater: nrioTool_udisk_setup(NRIO_UDISK_REMOVE_UPDATER, backupRoot); break;
+			default: return;
+		}
+	}
+}
+
 static void RunAdvancedMenu(const char *startupRecoveryRoot) {
+	LoadTopScreenAdvancedSplash(WarningPosted || debugMode);
 	const MenuItem items[] = {
 		{MenuAction::InstallBanner, "Install custom banner"},
 		{MenuAction::PatchSafeMode, "Patch safe mode for DSi"},
 		{MenuAction::ReplaceSafeMode, "Replace safe-mode ROM"},
+		{MenuAction::BypassSafeMode, "Bypass safe mode"},
+		{MenuAction::UdiskSetup, "uDisk setup"},
 		{MenuAction::RepairUdisk, "Repair stock uDisk"},
 		{MenuAction::SaveBlock0, "Dump block 0"},
 		{MenuAction::RestoreBlock0, "Restore block 0"},
@@ -954,6 +893,8 @@ static void RunAdvancedMenu(const char *startupRecoveryRoot) {
 			case MenuAction::InstallBanner: RunRecoveryAction(1, startupRecoveryRoot); break;
 			case MenuAction::PatchSafeMode: RunRecoveryAction(0, startupRecoveryRoot); break;
 			case MenuAction::ReplaceSafeMode: RunRecoveryAction(6, startupRecoveryRoot); break;
+			case MenuAction::BypassSafeMode: RunRecoveryAction(9, startupRecoveryRoot); break;
+			case MenuAction::UdiskSetup: RunUdiskSetupMenu(startupRecoveryRoot ? startupRecoveryRoot : RecoveryStorageRoot()); break;
 			case MenuAction::RepairUdisk: RunRecoveryAction(7, startupRecoveryRoot); break;
 			case MenuAction::SaveBlock0: RunRecoveryAction(2, startupRecoveryRoot); break;
 			case MenuAction::RestoreBlock0: RunRecoveryAction(4, startupRecoveryRoot); break;
@@ -966,7 +907,7 @@ static void RunAdvancedMenu(const char *startupRecoveryRoot) {
 static void RunDldiMenu();
 
 static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
-	if (!WarningPosted) LoadTopScreenUtilitySplash();
+	LoadTopScreenUtilitySplash(WarningPosted || debugMode);
 	const bool recoveryOnly = startupRecoveryRoot != nullptr;
 	while (!ErrorState) {
 		const bool recoveryAvailable = recoveryOnly || RecoveryStorageRoot() != nullptr;
@@ -974,16 +915,24 @@ static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
 		const MenuItem items[] = {
 			{MenuAction::Advanced, "Advanced NAND tools", recoveryAvailable},
 			{MenuAction::Dldi, "DLDI Menu", dsiToolsAvailable},
-			{MenuAction::CheckCart, "Check Cart", recoveryAvailable},
+			{MenuAction::CheckCart, "Check Cart"},
 			{MenuAction::BootCart, "Boot Cart", dsiToolsAvailable},
 			{MenuAction::BootGm9, "Boot GodMode9Nrio", dsiToolsAvailable},
 			{MenuAction::BuildUpdate, "Build Update File", !recoveryOnly},
 			{MenuAction::Usb, "Mount USB drive", UsbMountAvailable()},
 		};
 		switch (PickAction("Utility Menu", items, recoveryOnly)) {
-			case MenuAction::Advanced: RunAdvancedMenu(startupRecoveryRoot); break;
-			case MenuAction::Dldi: RunDldiMenu(); break;
-			case MenuAction::CheckCart: RunRecoveryAction(5, startupRecoveryRoot); break;
+			case MenuAction::Advanced:
+				RunAdvancedMenu(startupRecoveryRoot);
+				LoadTopScreenUtilitySplash(WarningPosted || debugMode);
+				break;
+			case MenuAction::Dldi:
+				RunDldiMenu();
+				if (!ErrorState) LoadTopScreenUtilitySplash(WarningPosted || debugMode);
+				break;
+			case MenuAction::CheckCart:
+				nrioTool_sd_recovery(5, startupRecoveryRoot ? startupRecoveryRoot : RecoveryStorageRoot());
+				break;
 			case MenuAction::BootCart: SetSCFG(); DoCartBoot(); break;
 			case MenuAction::BootGm9: SetSCFG(); DoGM9iBoot(); break;
 			case MenuAction::BuildUpdate: DoUpdateConvert(); break;
@@ -999,60 +948,69 @@ static void RunStorageRecoveryMenu(const char *root) {
 	RunUtilityMenu(root);
 }
 
-static void RunDldiMenu() {
+static bool PrepareDldiAction() {
+	if (nrioDLDIMounted) return true;
 	consoleClear();
-	if (!dldiWarned) {
-		puts("Restart required after entering");
-		puts("the DLDI Menu.\n");
-		puts("A Continue  B Back");
-		for (;;) {
-			swiWaitForVBlank();
-			scanKeys();
-			const u32 keys = keysDown();
-			if (keys & KEY_B) return;
-			if (keys & KEY_A) break;
-		}
-		dldiWarned = true;
+	puts("This action needs DLDI mode.");
+	puts("After switching, B exits to");
+	puts("the system menu.\n");
+	nrio_button_legend("A Continue  B Cancel", nullptr);
+	for (;;) {
+		swiWaitForVBlank();
+		scanKeys();
+		const u32 keys = keysDown();
+		if (keys & KEY_B) return false;
+		if (keys & KEY_A) break;
 	}
-	if (WarningPosted) consoleClearTop(false);
-	LoadTopScreenDLDISplash();
-	swiWaitForVBlank();
-	if (!ntrMode) {
-		ntrMode = true;
-		SetSCFG();
-	}
+
+	ntrMode = true;
+	SetSCFG();
+	nrioDLDIMounted = fatInitDefault();
 	if (!nrioDLDIMounted) {
-		nrioDLDIMounted = fatInitDefault();
-		if (!nrioDLDIMounted) {
-			DoError("DLDI Init Failed!\n");
-			return;
-		}
-		if (!uDiskFileFound) uDiskFileFound = (access("sd:/nrioFiles/xBootStrap.nds", F_OK) == 0);
+		DoError("DLDI Init Failed!\n");
+		return false;
 	}
+	if (!uDiskFileFound) uDiskFileFound = (access("sd:/nrioFiles/xBootStrap.nds", F_OK) == 0);
 	struct statvfs st;
 	if (!cartSize && statvfs("fat:/", &st) == 0) cartSize = (st.f_bsize * st.f_blocks) / 1024;
+	return true;
+}
 
+static void RunDldiMenu() {
+	LoadTopScreenDLDISplash();
 	const MenuItem items[] = {
 		{MenuAction::BootCart, "Boot cart menu"},
 		{MenuAction::DumpFatSector, "Dump FAT sector 0"},
 		{MenuAction::DumpFatImage, "Dump FAT image"},
 		{MenuAction::RestoreFatSector, "Restore FAT sector 0"},
-		{MenuAction::WriteFatImage, "Write default FAT image"},
 	};
 	while (!ErrorState) {
-		switch (PickAction("DLDI Menu", items, true)) {
+		const MenuAction action = PickAction("DLDI Menu", items, ntrMode);
+		if (action == MenuAction::Back) {
+			if (ntrMode) ErrorState = true;
+			return;
+		}
+		if (action == MenuAction::DumpFatSector || action == MenuAction::RestoreFatSector) {
+			if (nrioDLDIMounted) {
+				DoError("Exit DLDI mode and relaunch\n"
+				        "before accessing FAT sector 0.", false);
+			} else {
+				nrioTool_sector0_action(RecoveryStorageRoot(), action == MenuAction::RestoreFatSector);
+			}
+			continue;
+		}
+		if (!PrepareDldiAction()) continue;
+		switch (action) {
 			case MenuAction::BootCart: DoCartBoot(); break;
-			case MenuAction::DumpFatSector: DoSector0Dump(); break;
 			case MenuAction::DumpFatImage: DoImageDump(); break;
-			case MenuAction::RestoreFatSector: DoSector0Restore(); break;
-			case MenuAction::WriteFatImage: DoImageRestore(); break;
-			default: ErrorState = true; break;
+			default: break;
 		}
 	}
 }
 
 static MenuAction MainMenu() {
 	const MenuItem items[] = {
+		{MenuAction::FileBrowser, "File Browser"},
 		{MenuAction::Utility, "Utility Menu"},
 		{MenuAction::DumpMain, "Dump main SRL", rawNandAvailable},
 		{MenuAction::DumpStage2, srlLayout.bootleg ? "Dump bootleg SRL" : "Dump Safe Mode SRL", srlLayout.stage2_table != 0},
@@ -1084,7 +1042,8 @@ void vblankHandler (void) {
 	}
 }
 
-int main() {
+int main(int argc, char **argv) {
+	launchedFromSd = argc > 0 && argv && nrio_sd_launch_path(argv[0]);
 	scanKeys();
 	if(keysDown() & KEY_B)autoBootCart = true;
 	wasDSi = isDSiMode();
@@ -1110,9 +1069,10 @@ int main() {
 	if (recoveryOnly) {
 		if (wasDSi || GetSlot2Storage()) MountFATDevices();
 		if (const char *root = RecoveryStorageRoot()) RunStorageRecoveryMenu(root);
-		else if (wasDSi) DoFATerror(true, true);
-		else DoError("Recovery needs writable Slot-2\n"
-		             "storage and its DLDI driver.");
+		else {
+			if (SCFGUnlocked) enableSlot1();
+			RunUdiskSetupMenu(nullptr);
+		}
 		fifoSendValue32(FIFO_USER_03, 1);
 		return 0;
 	}
@@ -1164,10 +1124,17 @@ int main() {
 			return 0;
 		}
 		switch (MainMenu()) {
+            case MenuAction::FileBrowser:
+                nrio_file_browser(wasDSi && sdMounted, !wasDSi && fatMounted && GetSlot2Storage(),
+                                  !wasDSi && fatMounted && !GetSlot2Storage());
+                if (WarningPosted) LoadTopScreenDebugSplash();
+                else LoadTopScreenSplash();
+                break;
 			case MenuAction::Utility:
 				RunUtilityMenu();
 				if (!ErrorState) RefreshSrlLayout();
-				if (!WarningPosted) LoadTopScreenSplash();
+				if (WarningPosted) LoadTopScreenDebugSplash();
+				else LoadTopScreenSplash();
 				break;
 			case MenuAction::DumpMain: DoNandDump("stage1.bin", STAGE1OFFSET, STAGE1SECTORCOUNT); break;
 			case MenuAction::DumpStage2:

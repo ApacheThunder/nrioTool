@@ -17,6 +17,7 @@
 
 static PrintConsole tpConsole;
 static PrintConsole btConsole;
+static unsigned queuedPalette = 15;
 
 static int bg;
 static int bgSub;
@@ -27,6 +28,10 @@ extern bool debugMode;
 
 void SelectTopConsole() { consoleSelect(&tpConsole); }
 void SelectBotConsole() { consoleSelect(&btConsole); }
+int BottomConsoleRow() { return btConsole.windowY; }
+void BottomConsoleQueuedColor(bool enabled) {
+	btConsole.fontCurPal = (enabled ? queuedPalette : 15) << 12;
+}
 
 void consoleClearTop(bool KeepTopSelected) {
 	SelectTopConsole();
@@ -65,18 +70,17 @@ void LoadTopScreenDLDISplash() {
 	BG_PALETTE[255] = RGB15(31,31,31);
 }
 
-void LoadTopScreenUtilitySplash() {	
-	dmaCopy(utilityMenuBitmap, bgGetGfxPtr(bg), 256*256);
-	dmaCopy(utilityMenuPal, BG_PALETTE, 256*2);
+void LoadTopScreenUtilitySplash(bool showDebug) {
+	dmaCopy(showDebug ? utilityMenuDebugBitmap : utilityMenuBitmap, bgGetGfxPtr(bg), 256*256);
+	dmaCopy(showDebug ? utilityMenuDebugPal : utilityMenuPal, BG_PALETTE, 256*2);
 	BG_PALETTE[255] = RGB15(31,31,31);
 }
 
-void LoadTopScreenUtilityDebugSplash() {	
-	dmaCopy(utilityMenuDebugBitmap, bgGetGfxPtr(bg), 256*256);
-	dmaCopy(utilityMenuDebugPal, BG_PALETTE, 256*2);
+void LoadTopScreenAdvancedSplash(bool showDebug) {
+	dmaCopy(showDebug ? advancedMenuDebugBitmap : advancedMenuBitmap, bgGetGfxPtr(bg), 256*256);
+	dmaCopy(showDebug ? advancedMenuDebugPal : advancedMenuPal, BG_PALETTE, 256*2);
 	BG_PALETTE[255] = RGB15(31,31,31);
 }
-
 
 void BootSplashInit() {
 	videoSetMode(MODE_4_2D);
@@ -101,7 +105,7 @@ void BootSplashInit() {
 	consoleSetFont(&btConsole, &font);
 	consoleSetFont(&tpConsole, &font);
 	
-	consoleSetWindow(&btConsole, 0, 6, 32, 24);
+	consoleSetWindow(&btConsole, 0, MENU_CONSOLE_TOP, 32, 24 - MENU_CONSOLE_TOP);
 	consoleSetWindow(&tpConsole, 1, 5, 30, 19);
 	
 	// Load graphics after font or else you get palette conflicts. :P
@@ -112,6 +116,20 @@ void BootSplashInit() {
 	
 	BG_PALETTE[255] = RGB15(31,31,31);
 	BG_PALETTE_SUB[255] = RGB15(31,31,31);
+    // The bitmap and text share BG_PALETTE_SUB. Pick a text ink slot
+    // that is unused by the bitmap so the highlight doesn't recolor it.
+    const u8 *backdrop = reinterpret_cast<const u8 *>(botConsoleBitmap);
+    bool used[256] = {};
+    for (unsigned i = 0; i < 256 * 256; ++i) used[backdrop[i]] = true;
+    for (unsigned bank = 0; bank < 15; ++bank) {
+        unsigned ink = bank * 16 + 15;
+        if (!used[ink]) {
+            BG_PALETTE_SUB[ink] = RGB15(31, 8, 8);
+            queuedPalette = bank;
+            break;
+        }
+    }
+
 	
 	consoleSelect(&btConsole);
 }

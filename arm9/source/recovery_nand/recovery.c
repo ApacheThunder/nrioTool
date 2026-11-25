@@ -210,3 +210,12 @@ bool nrio_recovery_patch_snapshot(uint32_t lba, const void *snapshot,
     return patch_block_snapshot(lba / SECTORS_PER_PAGE, geometry.pages_per_block, workspace,
                                 snapshot, patches, count, install, leave_padding_erased, &write_error);
 }
+
+bool nrio_recovery_patch_udisk_snapshot(uint32_t lba, const void *snapshot,
+                                        const struct nrio_sector_patch *patches, uint32_t count,
+                                        bool install)
+{
+    if (!snapshot || !patches || !valid_block(lba)) return false;
+    return patch_udisk_block_snapshot(lba / SECTORS_PER_PAGE, geometry.pages_per_block,
+                                      workspace, snapshot, patches, count, install, &write_error);
+}

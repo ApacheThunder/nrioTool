@@ -93,3 +93,30 @@ bool nrio_srl_plan(uint32_t table, uint32_t sectors,
     *blocks = count;
     return true;
 }
+
+bool nrio_srl_format_check(uint32_t table, uint32_t address, uint32_t bytes,
+                           uint32_t metadata_start, uint32_t *fingerprint)
+{
+    uint8_t data[SECTOR];
+    if (!fingerprint || (table != NRIO_RAW_PRIMARY_TABLE && table != NRIO_RAW_SECONDARY_TABLE) ||
+        !bytes || bytes > NRIO_RAW_TABLE_BYTES / 4 * NRIO_SRL_MAP_BLOCK ||
+        metadata_start < MIN_ROM_ADDRESS + NRIO_SRL_MAP_BLOCK)
+        return false;
+
+    uint32_t blocks = (bytes + NRIO_SRL_MAP_BLOCK - 1) / NRIO_SRL_MAP_BLOCK;
+    uint32_t prior = 0, hash = 2166136261u;
+    for (uint32_t i = 0; i < blocks; ++i) {
+        enum { ENTRIES_PER_SECTOR = SECTOR / 4 };
+        if (i % ENTRIES_PER_SECTOR == 0 &&
+            !nrio_recovery_read(table / SECTOR + i / ENTRIES_PER_SECTOR, 1, data)) return false;
+        uint32_t at = word(data + (i % ENTRIES_PER_SECTOR) * 4);
+        if (at < MIN_ROM_ADDRESS || at > metadata_start - NRIO_SRL_MAP_BLOCK ||
+            at % NRIO_SRL_MAP_BLOCK || (i ? at <= prior : at != address)) return false;
+        prior = at;
+        hash = (hash ^ at) * 16777619u;
+    }
+    if (!nrio_recovery_read(address / SECTOR, 1, data)) return false;
+    for (unsigned i = 0; i < SECTOR; ++i) hash = (hash ^ data[i]) * 16777619u;
+    *fingerprint = hash;
+    return true;
+}

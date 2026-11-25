@@ -23,7 +23,7 @@ NITRO_FILES := nrioFiles
 
 include $(DEVKITARM)/ds_rules
 
-.PHONY: data bootloader clean
+.PHONY: data bundle bootloader clean
 
 #---------------------------------------------------------------------------------
 # main targets
@@ -39,17 +39,24 @@ checkarm9:
 	$(MAKE) -C arm9
 
 #---------------------------------------------------------------------------------
-$(TARGET).nds : $(NITRO_FILES) arm7/$(TARGET).elf arm9/$(TARGET).elf
+$(TARGET).nds : $(NITRO_FILES) arm7/$(TARGET).elf arm9/$(TARGET).elf nrio-unified.dldi
 	@ndstool	-c $@ -7 arm7/$(TARGET).elf -9 arm9/$(TARGET).elf \
 				-b $(CURDIR)/icon.bmp "NAND Cart Tool;For N-Card/Clones;By Apache Thunder" \
 				-g DSNR 01 "NRIOTOOL" -z 80040000 -u 00030004 -a 00000138 -p 0001 \
 				-d $(NITRO_FILES)
-	@dlditool nrio.dldi $@
+	@dlditool nrio-unified.dldi $@
 
 data:
 	@mkdir -p data
 
-bootloader: data
+.PHONY: xulu-menu
+xulu-menu:
+	$(MAKE) -C XuluMenu
+
+bundle: xulu-menu
+	python3 embed_bundle.py "$(CURDIR)"
+
+bootloader: data bundle
 	$(MAKE) -C bootloader LOADBIN=$(TOPDIR)/data/load.bin
 
 #---------------------------------------------------------------------------------

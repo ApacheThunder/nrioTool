@@ -15,16 +15,23 @@ Tested:
 
 * The older 1.7 release includes the 3DS CIA build that SylverReZ helped test. Build the current source for the features documented below. It produces `nrioTool.nds`. [1.7 release](https://github.com/ApacheThunder/nrioTool/releases/tag/1.7)
 * On DS or DS Lite, launch `nrioTool.nds` from your homebrew launcher. Normal dumps use `fat:/nrioFiles`. For NAND recovery, launch with a writable Slot-2 DLDI storage device and put `nrioFiles` on that device.
-* On DSi, put the `nrioFiles` folder at the root of the SD card and launch with SD access. The bundled FAT images are for 16 Gbit cards and include XMenu, uDisk, and its updater. You can edit the files in the FAT images with [WinImage](https://www.winimage.com/).
+* On DSi, put the `nrioFiles` folder at the root of the SD card and launch with SD access. Stock setup is built into the ROM, so no external firmware or starter files are needed.
 * HiyaCFW users can copy the `title` folder from the older 1.9 release to the root of the SD card to install that version on the System Menu. You can also launch `nrioTool.nds` directly from Unlaunch. [1.9 release](https://github.com/ApacheThunder/nrioTool/releases/tag/1.9)
 
 ## Features
 
 * **Main Menu** dumps the main, safe-mode, bootleg, or uDisk SRL as available, exports the banner, and runs a 3,300-sector raw NAND test dump.
 * **Utility Menu** opens **Advanced NAND tools**, checks the cart, builds update files, and mounts USB with a detected Slot-2 writer. In DSi mode it also provides **DLDI Menu**, **Boot Cart**, and **Boot GodMode9Nrio**.
-* **DLDI Menu** is available in DSi mode. It can boot the cart menu, dump FAT sector 0 to `sd:/nrioFiles/nrio_fatsector0.bin`, or dump the FAT image to `sd:/nrioFiles/nrio_fatimage_dump.bin`. Restart nrioTool to return to the Main Menu after entering the DLDI Menu.
-  * **Write default FAT image** selects one of the two bundled 16 Gbit images by detected FAT capacity. If `sd:/nrioFiles/nrio_customimage.img` exists, the tool uses it instead. This overwrites the cart's FAT contents.
-  * **Restore FAT sector 0** has a known bug. It reads sector 0 again and incorrectly reports a successful restore.
+* **File Browser** switches between available volumes and supports batch copy and cut, paste previews, filename conflict choices, rename, delete, and a touch keyboard. GodMode9Nrio remains available.
+* **DLDI Menu** is available in DSi mode. It keeps the FAT-image dump and can dump or restore logical FAT sector 0 without mounting the cart filesystem. Restore requires an exact 512-byte FAT boot sector or FAT MBR, saves the existing sector, and verifies the write after restarting the driver. Just looking at the menu no longer forces a reboot.
+
+## Format and set up the cart
+
+Open **Utility Menu → Advanced NAND tools → uDisk setup**. **Quick Format** rebuilds FAT and skips marked or failed blocks. **Full Format** also write-tests usable data blocks and records newly failed ones. Both erase cart files, preserve boot firmware, and require a verified SD launch or an independent Slot-2 mount. They replace **Write default FAT image** and its custom-image override.
+
+After formatting, run **Set up XuluMenu** or **Copy stock/custom XMenu** before rebooting. The default XuluMenu setup keeps stock XMenu as `xmenu.nds`. Menu setup streams the compressed starter files without relying on NitroFS. **Install stock uDisk 1.45** updates the hidden firmware on supported layouts without formatting. **Delete old uDisk installer** only removes a recognized leftover `autorun1.nds`.
+
+Quick Format has been tested on physical carts. Full Format and the latest driver changes have host regression coverage and still need hardware verification.
 
 ## Dump SRLs
 
@@ -32,7 +39,7 @@ The Main Menu probes Slot-1 with the read-only NAND backend and lists the SRL du
 
 **Dump banner** saves the first 2 KiB banner at NAND offset `0x2000` as `banner.bin`. It appends `0x40` zero bytes to produce a standard `0x840`-byte v1 banner that **Install custom banner** also accepts.
 
-The SRL and banner dumps save to the current storage's `nrioFiles` directory. They publish the finished file after a successful read and close. Press **B** during a dump to cancel. Move an existing output file before dumping it again.
+The SRL and banner dumps save to the current storage's `nrioFiles` directory. They publish the finished file after a successful read and close. Press **B** during a dump to cancel. Safe-mode dumps get numbered filenames when a previous dump exists. Move other existing outputs before repeating a dump.
 
 **Test NAND dump** uses the raw NAND reader to save the first 3,300 sectors as `nrio_data.bin`. Starting it replaces any existing file of that name. Cancelling with **B** keeps the partial file.
 
@@ -45,20 +52,20 @@ Use **Up/Down** to highlight a row, **A** to select it, and **B** to go back or 
 The advanced menu includes these targeted fixes.
 
 - **Patch safe mode for DSi.** Prepare the patch from the cart's own stock safe-mode ROM. An optional `safe-mode.nds` in the mounted storage's `nrioFiles` directory must match the target ROM outside the header and ARM7 sectors and carry a recognized relocation patch. Erased `FF` padding after the declared ROM length is accepted up to the next power-of-two size (at least 128 KiB). The patch still requires the live header and ARM7 sector to be in block 0.
-- **Install custom banner.** Read `banner.bin` from the mounted storage's `nrioFiles` directory and update the first v1 banner copy at NAND offset `0x2000`. The input can be `0x800` bytes or a full `0x840`-byte banner with a zero-filled final `0x40` bytes. The second banner copy and recognized ARM7 boot records in the spare area are preserved. ECC is regenerated only for existing ECC-format banner records.
+- **Install custom banner.** Read `banner.bin` from the mounted storage's `nrioFiles` directory and update both v1 banner copies at NAND offsets `0x2000` and `0x2800` in one block-0 rewrite. The input can be `0x800` bytes or a full `0x840`-byte banner with a zero-filled final `0x40` bytes. The installer checks each page’s spare format independently. It preserves recognized ARM7 boot records and regenerates ECC only for pages already using the ECC format.
 - **Restore banner ARM7.** Repair page 4's spare record if the two intact ARM7 copies from pages 1 and 5 agree and the live page-4 damage matches the old banner writer's ECC pattern. The current banner and all other records are preserved. The tool saves a block-0 backup before confirmation.
 
 The targeted NAND write paths save the target's block-0 backup to the mounted storage before confirmation. Keep a pre-fault backup when you have one. Hold **L + R** and press **A** to write. The tool verifies the live block against the backup before erase and reads back the entire block afterward. Apache confirmed SD backup export and banner display on hardware with the initial build. This was a different cart from the verified DS Linker. It white-screened afterward and had no pre-write boot test. Apache suspected an existing uDisk problem. The revised banner writer preserves the ARM7 spare record in emulation and still needs hardware testing. The ExpressCard's raw before-and-after dumps matched the old writer's output byte for byte. It changed 472 banner bytes and 34 ARM7 spare bytes, all on NAND page 4. The restore passed emulation on the actual post-write main and spare dumps and preserved the replacement banner. Apache confirmed on hardware that the ExpressCard booted again after the targeted ARM7 restore.
 
 ## Build
 
-Set `DEVKITPRO` and `DEVKITARM` for devkitARM and add the devkitPro tools to `PATH`. The tested build uses libnds 1.8.3 and libfat-nds 1.1.5 in a shared legacy SDK directory. Run this from the repository root.
+Set `DEVKITPRO` and `DEVKITARM` for devkitARM and add the devkitPro tools to `PATH`. The asset packer uses Python 3 and the ARM9 build needs `nds-zlib`. The tested build uses libnds 1.8.3 and libfat-nds 1.1.5 in a shared legacy SDK directory. Run this from the repository root.
 
 ```sh
 make LIBNDS=/path/to/legacy-sdk/opt/devkitpro/libnds
 ```
 
-The Makefile builds `nrioTool.nds`, embeds the files in `nrioFiles` as NitroFS, and patches in `nrio.dldi`. Keep the external `nrioFiles` directory for inputs and outputs. [Integration notes](https://github.com/nextcode4u/DLDI-REA-Decomp/tree/b66838d/n-card/nrioTool)
+The Makefile builds `nrioTool.nds`, embeds the starter bundle and patches in the unified C NRIO DLDI. The same driver handles the private cart mounts and the bundled USB app. Menu setup does not depend on a NitroFS FAT image. Keep the external `nrioFiles` directory for optional inputs, logs and backups. [Integration notes and host tests](https://github.com/nextcode4u/DLDI-REA-Decomp/tree/main/n-card/nrioTool)
 
 ## DS and DS Lite recovery with Slot-2 storage
 
@@ -76,22 +83,17 @@ The standard build includes the checked-in `data/usb_mount.bin` payload. The com
 
 ## Check the cart
 
-Select **Check Cart** in the Utility Menu. The read-only check reports the NAND ID, detected erase geometry, and the addresses and recognized ROM types selected by the primary and secondary boot tables. The report is appended to `nrioFiles/CHECK-CART.TXT`. Press **X** while viewing the report to select a saved block-0 backup and check its file lengths, CRCs, and cart anchors. A layout match identifies the header and mapped ARM7 pattern. It cannot predict bootability.
+Select **Check Cart** in the Utility Menu. The read-only report checks NAND geometry, boot routes, FAT mapping, and missing menu files. Press **R** to retry, **L** for next steps, and **Y** for a NAND health scan. **SELECT** tests upper address reads for possible 4 GiB NAND without enabling 4 GiB mounts or writes. With independent storage, the report is saved to `nrioFiles/CHECK-CART.TXT` and **X** checks a saved block-0 backup.
 
 ## Advanced NAND tools
 
 Select **Advanced NAND tools** in the Utility Menu. The NAND installers validate the target, save the affected erase blocks before confirmation, and verify each rewritten block. **Restore block 0** requires a matching source backup. **Build Update File** in the Utility Menu is a file conversion action. It reads `nrioFiles/update.bin` and produces `nrioFiles/update_converted.bin` with the updater's `MKR` sector markers.
 
-- **Replace safe-mode ROM.** Put `safe-replacement.nds` in `nrioFiles` on the mounted storage. The tool reads the original safe-mode ROM from the cart. If you supply `safe-original.nds`, it must match the mapped ROM byte for byte through its declared length. The replacement must fit in the existing mapping and pass header, ARM load range, and spare checks. Files up to 256 KiB are accepted. The checker keeps padding beyond the replacement's declared size on NAND and can stage changes in more than one erase block.
-- **Repair stock uDisk.** Extract the tagged `udisk_eng.nds` from the archived stock BIOS updater and put it in `nrioFiles`. The tool verifies the known package by size, CRC, and sector ECC. It requires an intact recognized early safe-mode route and either the contiguous stock uDisk map or an erased secondary map with blank or already matching payload sectors. The map tail must be blank or already match the stock padding and footer. It writes and verifies the payload first, updates the secondary map last, and refuses to touch block 0. [Stock updater archive](https://github.com/m4x10187/fire-card-archive/tree/ced86434054e47dcca8d4e90efd25cc92f88d688/N-Card/Dumps/recovered)
+- **Replace safe-mode ROM.** Put `safe-replacement.nds` in `nrioFiles`. The tool uses the live ROM as its baseline. A local `safe-original.nds` is a backup only. The replacement must fit within the verified existing map and pass header, load address, and spare checks.
+- **Repair stock uDisk.** Restore the bundled stock 1.45 payload and secondary map on supported layouts. The tool verifies the original data and readback, publishes the secondary map last, and leaves block 0 alone.
+- **Bypass safe mode.** Redirect boot to a recognized existing stock uDisk 1.45 or hidden XuluMenu layout. This does not delete the installed safe-mode ROM.
 
 If **Replace safe-mode ROM** repeatedly misreads page `0xE` (`0x7000–0x77FF`) in the first erase block, it can offer to leave that page erased. The offer depends on the data and applies across supported cart models. Both reads must show all-`FF` spare bytes, an all-`FF` first half, and only sparse cleared bits in the second half. Press **A** to allow the exception or **B** to cancel. The backup retains the original read, and the usual **L + R + A** write confirmation still applies. The tool checks the erased-page pattern on readback and compares every other page exactly. Apache Thunder tested the page-`0xE` workaround on a DS Linker. The post-write backup matched the replacement ROM byte for byte. Page `0xE` read back entirely as `FF`, and the only other main and spare changes were the two patched sectors and their ECC. DSi boot for this cart remains unconfirmed.
-
-The `udisk_eng.nds` data in the reference `update.nds` begins at `0x24200` and is `0xC1200` bytes long. Extract it with a NitroFS tool or run this command with the archived updater.
-
-```sh
-dd if=update.nds of=udisk_eng.nds bs=512 skip=289 count=1545
-```
 
 **Replace safe-mode ROM** and **Repair stock uDisk** append diagnostics to `ADVANCED.TXT`. When they stage a write, they save `region-NNN/blocks.bin` and `region-NNN/SESSION.TXT` on the mounted storage. If a snapshot reread differs from the saved page, the tool checks up to four more times and proceeds only after two consecutive exact matches. It publishes `blocks.bin` only after the full backup passes preflight and closes successfully. A persistent mismatch reports the NAND page, whether it was in main or spare data, the byte offset, and both values. Each block snapshot includes every main and spare byte, its physical LBA, and a CRC. Use the integration project's extractor to verify the backup or extract each block's main and packed spare files. [Download `unpack_region.py`](https://github.com/nextcode4u/DLDI-REA-Decomp/blob/main/n-card/nrioTool/unpack_region.py)
 

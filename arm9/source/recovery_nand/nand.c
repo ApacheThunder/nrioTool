@@ -95,7 +95,7 @@ static bool wait_nand(void)
     return false;
 }
 
-static bool nand_read_id(u32 *id)
+bool nand_read_probe_id(u32 *id)
 {
     REG_AUXSPICNTH = CARD_SPICNTH_ENABLE | CARD_SPICNTH_IRQ;
     if (!wait_idle()) {
@@ -226,7 +226,7 @@ bool nand_program_page(u32 page, const u8 *record)
 bool nand_probe(struct nand_geometry *geometry)
 {
     geometry->sectors = 0;
-    if (!nand_read_id(&geometry->id)) {
+    if (!nand_read_probe_id(&geometry->id)) {
         return false;
     }
     u8 maker = geometry->id;

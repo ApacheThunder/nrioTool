@@ -18,6 +18,7 @@ struct nand_geometry {
     u32 pages_per_block;
 };
 
+bool nand_read_probe_id(u32 *id);
 bool nand_probe(struct nand_geometry *geometry);
 bool nand_read_main(u32 sector, u32 count, u8 *output);
 bool nand_load_page(u32 page, bool spare);

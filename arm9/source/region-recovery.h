@@ -14,6 +14,7 @@ enum nrio_boot_kind {
     NRIO_BOOT_UDISK,
     NRIO_BOOT_COMPACT,
     NRIO_BOOT_ERASED,
+    NRIO_BOOT_XULU,
 };
 
 struct nrio_boot_rom {
@@ -24,7 +25,11 @@ struct nrio_boot_rom {
 struct nrio_boot_rom nrio_inspect_boot(uint32_t table, uint32_t sectors);
 const char *nrio_boot_kind_name(enum nrio_boot_kind kind);
 void nrio_install_region(const char *root, const struct nrio_raw_info *info,
-                         void *snapshot, bool udisk);
+                         void *snapshot, bool udisk, bool bios);
+typedef bool (*nrio_block0_saver)(const char *root, const struct nrio_raw_info *info,
+                                 const uint8_t *records);
+void nrio_bypass_safe_mode(const char *root, const struct nrio_raw_info *info,
+                           uint8_t *snapshot, nrio_block0_saver save);
 void nrio_region_screen(const char *heading);
 bool nrio_confirm_write(void);
 bool nrio_confirm_padding_erase(void);

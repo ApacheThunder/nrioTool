@@ -106,6 +106,14 @@ bool nrio_recovery_read_snapshot(uint32_t lba, void *snapshot, uint32_t bytes);
 bool nrio_recovery_patch_snapshot(uint32_t lba, const void *snapshot,
                                   const struct nrio_sector_patch *patches, uint32_t count,
                                   bool install, bool leave_padding_erased);
+/* Stock BIOS writes main data only. Use this solely for the fixed uDisk
+   payload and secondary-table ranges after the frontend authenticates them. */
+bool nrio_recovery_patch_udisk_snapshot(uint32_t lba, const void *snapshot,
+                                        const struct nrio_sector_patch *patches, uint32_t count,
+                                        bool install);
+bool patch_udisk_block_snapshot(uint32_t page, uint32_t pages, uint8_t *records,
+                                const uint8_t *snapshot, const struct nrio_sector_patch *patches,
+                                uint32_t count, bool install, struct nrio_raw_write_error *error);
 bool read_block_snapshot(uint32_t page, uint32_t pages, uint8_t *records,
                          struct nrio_raw_write_error *error);
 bool patch_block_snapshot(uint32_t page, uint32_t pages, uint8_t *records, const uint8_t *snapshot,

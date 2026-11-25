@@ -221,6 +221,61 @@ bool patch_block_snapshot(u32 page, u32 pages, u8 *records, const u8 *snapshot,
     return !install || !changed || program_and_verify_block(page, pages, records, leave_padding_erased, error);
 }
 
+bool patch_udisk_block_snapshot(u32 page, u32 pages, u8 *records, const u8 *snapshot,
+                                const struct nrio_sector_patch *patches, u32 count, bool install,
+                                struct nrio_raw_write_error *error)
+{
+    enum { MAP = 0x40000, MAP_SIZE = 0x20000, RUNTIME = 0x80000, RUNTIME_END = 0x140000 };
+    if ((pages != 64 && pages != 128) || page % pages || page > RUNTIME_END / PAGE_SIZE)
+        return false;
+    u32 address = page * PAGE_SIZE, erase_bytes = pages * PAGE_SIZE;
+    bool map = address == MAP && count == MAP_SIZE / SECTOR_SIZE;
+    bool payload = address >= RUNTIME && address < RUNTIME_END &&
+                   erase_bytes <= RUNTIME_END - address && count == erase_bytes / SECTOR_SIZE;
+    if (!map && !payload) return false;
+    for (u32 i = 0; i < count; ++i)
+        if (patches[i].lba != page * SECTORS_PER_PAGE + i || !patches[i].data)
+            return false;
+
+    if (!read_block_snapshot(page, pages, records, error)) return false;
+    bool changed = false;
+    for (u32 row = 0; row < pages; ++row) {
+        u8 *record = records + row * PAGE_RECORD_SIZE;
+        const u8 *saved = snapshot + row * PAGE_RECORD_SIZE;
+        if (!check_snapshot_page(page + row, record, saved, error)) return false;
+        if (row >= count / SECTORS_PER_PAGE) continue;
+
+        for (u32 column = 0; column < SECTORS_PER_PAGE; ++column) {
+            const struct nrio_sector_patch *patch = patches + row * SECTORS_PER_PAGE + column;
+            u8 *data = record + column * SECTOR_SIZE;
+            u8 *spare = record + PAGE_SIZE + column * 16;
+            if (patch->expected && !equal(data, patch->expected, SECTOR_SIZE))
+                return fail_write(error, NRIO_RAW_WRITE_SNAPSHOT, page + row, column);
+
+            /* The stock BIOS writer sends only the four main sectors. Accept
+               erased spare or exactly the generic ECC written by our old repair
+               tool. Do not erase other markers or bad-block information. */
+            if (!erased_bytes(spare, 16)) {
+                u8 before[16];
+                for (u32 i = 0; i < sizeof(before); ++i) before[i] = spare[i];
+                if (!erased_bytes(before, 4) || before[7] != 0xff ||
+                    before[11] != 0xff || before[15] != 0xff)
+                    return fail_write(error, NRIO_RAW_WRITE_MARKER, page + row, column);
+                regenerate_ecc(record, column);
+                if (!equal(spare, before, sizeof(before)))
+                    return fail_write(error, NRIO_RAW_WRITE_MARKER, page + row, column);
+                for (u32 i = 0; i < 16; ++i) spare[i] = 0xff;
+                changed = true;
+            }
+            if (!equal(data, patch->data, SECTOR_SIZE)) {
+                for (u32 i = 0; i < SECTOR_SIZE; ++i) data[i] = patch->data[i];
+                changed = true;
+            }
+        }
+    }
+    return !install || !changed || program_and_verify_block(page, pages, records, false, error);
+}
+
 static bool rewrite_block(u32 page, u32 pages, u32 offset, u32 count,
                           const u8 *input, u8 *records, struct nrio_raw_write_error *error,
                           enum nrio_raw_mode mode, const u8 *expected_spare)
@@ -338,7 +393,8 @@ static bool live_safe_mode_plan;
 static u32 live_restore_pages;
 static const u8 *live_restore_backup;
 static u32 live_banner_pages;
-static bool live_banner_has_ecc;
+enum { BANNER_COPIES = 2 };
+static bool live_banner_has_ecc[BANNER_COPIES];
 static bool live_banner_spare_only;
 static u8 live_banner_spare[SPARE_SIZE];
 static u8 live_banner[PAGE_SIZE];
@@ -591,23 +647,20 @@ bool restore_safe_mode(u32 pages, u8 *records, struct nrio_raw_write_error *erro
 }
 
 
-static bool banner_spare_format(const u8 *records, bool *has_ecc)
+static bool banner_spare_format(const u8 *records, unsigned copy, bool *has_ecc)
 {
-    const u8 *record = records + BANNER_PAGE * PAGE_RECORD_SIZE;
+    const u8 *record = records + (BANNER_PAGE + copy) * PAGE_RECORD_SIZE;
     const u8 *spare = record + PAGE_SIZE;
     const u8 *page1 = records + PAGE_RECORD_SIZE + PAGE_SIZE;
-    const u8 *page5 = records + 5 * PAGE_RECORD_SIZE + PAGE_SIZE;
+    const u8 *other = records + (BANNER_PAGE + 1 - copy) * PAGE_RECORD_SIZE + PAGE_SIZE;
     *has_ecc = false;
-    if (load_word(spare) == UINT32_C(0xe3a00000) &&
-        load_word(spare + 4) == UINT32_C(0xe59f1020) &&
-        (equal(spare, page1, SPARE_SIZE) || equal(spare, page5, SPARE_SIZE)))
+    if (nrio_safe_mode_handoff(spare) ||
+        (load_word(spare) == UINT32_C(0xe3a00000) &&
+         load_word(spare + 4) == UINT32_C(0xe59f1020) &&
+         (equal(spare, page1, SPARE_SIZE) || equal(spare, other, SPARE_SIZE))))
         return true;
 
-    bool blank = true;
-    for (unsigned i = 0; i < SPARE_SIZE; ++i) {
-        if (spare[i] != 0xff) blank = false;
-    }
-    if (blank) return true;
+    if (erased_bytes(spare, SPARE_SIZE)) return true;
 
     // Rewrite ECC only when the existing triplets match this page's main data.
     u8 expected[PAGE_RECORD_SIZE];
@@ -654,11 +707,16 @@ static void stage_banner_snapshot(u32 pages, const u8 *records, bool spare_only)
 bool prepare_sd_banner(u32 pages, u8 *records, const u8 *banner, struct nrio_raw_write_error *error)
 {
     if (!read_banner_block(pages, records, error)) return false;
-    const u8 *current = main_sector(records, BANNER_LBA);
-    if (current[0] != 1 || current[1] || !valid_v1_banner(banner))
+    if (!valid_v1_banner(banner))
         return fail_write(error, NRIO_RAW_WRITE_SAFE_MODE_PLAN, BANNER_PAGE, 0);
-    if (!banner_spare_format(records, &live_banner_has_ecc))
-        return fail_write(error, NRIO_RAW_WRITE_MARKER, BANNER_PAGE, 0);
+    for (unsigned copy = 0; copy < BANNER_COPIES; ++copy) {
+        const u32 page = BANNER_PAGE + copy;
+        const u8 *current = records + page * PAGE_RECORD_SIZE;
+        if (current[0] != 1 || current[1])
+            return fail_write(error, NRIO_RAW_WRITE_SAFE_MODE_PLAN, page, 0);
+        if (!banner_spare_format(records, copy, &live_banner_has_ecc[copy]))
+            return fail_write(error, NRIO_RAW_WRITE_MARKER, page, 0);
+    }
     for (u32 i = 0; i < PAGE_SIZE; ++i) live_banner[i] = banner[i];
     stage_banner_snapshot(pages, records, false);
     return true;
@@ -698,18 +756,21 @@ bool install_sd_banner(u32 pages, u8 *records, struct nrio_raw_write_error *erro
 {
     if (!live_banner_pages || pages != live_banner_pages ||
         !read_matching_snapshot(pages, records, error)) return false;
-    u8 *record = records + BANNER_PAGE * PAGE_RECORD_SIZE;
     if (live_banner_spare_only) {
+        u8 *record = records + BANNER_PAGE * PAGE_RECORD_SIZE;
         for (unsigned i = 0; i < SPARE_SIZE; ++i) record[PAGE_SIZE + i] = live_banner_spare[i];
         return program_and_verify_block(0, pages, records, false, error);
     }
     bool changed = false;
-    for (unsigned column = 0; column < SECTORS_PER_PAGE; ++column) {
-        unsigned offset = column * SECTOR_SIZE;
-        if (equal(record + offset, live_banner + offset, SECTOR_SIZE)) continue;
-        for (unsigned i = 0; i < SECTOR_SIZE; ++i) record[offset + i] = live_banner[offset + i];
-        if (live_banner_has_ecc) regenerate_ecc(record, column);
-        changed = true;
+    for (unsigned copy = 0; copy < BANNER_COPIES; ++copy) {
+        u8 *record = records + (BANNER_PAGE + copy) * PAGE_RECORD_SIZE;
+        for (unsigned column = 0; column < SECTORS_PER_PAGE; ++column) {
+            unsigned offset = column * SECTOR_SIZE;
+            if (equal(record + offset, live_banner + offset, SECTOR_SIZE)) continue;
+            for (unsigned i = 0; i < SECTOR_SIZE; ++i) record[offset + i] = live_banner[offset + i];
+            if (live_banner_has_ecc[copy]) regenerate_ecc(record, column);
+            changed = true;
+        }
     }
     return !changed || program_and_verify_block(0, pages, records, false, error);
 }

@@ -29,6 +29,13 @@ include $(DEVKITARM)/ds_rules
 #---------------------------------------------------------------------------------
 all: $(TARGET).nds
 
+ifneq ($(wildcard nrio-banner.bin),)
+XULU_BANNER = -t nrio-banner.bin
+else
+# Older source snapshots omitted the banner binary.
+XULU_BANNER = -b ../icon.bmp "XuluMenu;N-Card;By Apache Thunder"
+endif
+
 #---------------------------------------------------------------------------------
 checkarm7:
 	$(MAKE) -C arm7
@@ -40,7 +47,7 @@ checkarm9:
 #---------------------------------------------------------------------------------
 $(TARGET).nds : $(NITRO_FILES) arm7/$(TARGET).elf arm9/$(TARGET).elf
 	@ndstool	-c $@ -7 arm7/$(TARGET).elf -9 arm9/$(TARGET).elf \
-	-h 0x200 -t nrio-banner.bin
+	-h 0x200 $(XULU_BANNER)
 	@dlditool ../nrio.dldi $@
 
 data:
