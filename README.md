@@ -4,7 +4,9 @@ _A tool for dumping hidden SRL ROM sections from N-Card and its clones._
 (F-Card, Fire Card, DS-Linker and NeoFlash MK5 are known clones of N-Card). Some recovery options are also available for DLDI section of the cart.
 
 ## List of Known Carts
-![NinjaPass Junior 512M, DS Fire Link, Sunny Flash, F-Card, ExpressCard, DS-Linker, N-Card.](carts.jpg)
+<p align="center">
+  <img src="https://github.com/ApacheThunder/nrioTool/raw/main/carts.jpg" alt="NinjaPass Junior 512M, DS Fire Link, Sunny Flash, F-Card, ExpressCard, DS-Linker, N-Card.">
+</p>
 
 Tested:
 - DS Fire Link (8 Gbit and 16 Gbit).
