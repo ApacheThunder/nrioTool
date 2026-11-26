@@ -82,7 +82,8 @@ void nrio_capacity_probe_ui(const char *root)
     struct nrio_capacity_report r;
     nrio_probe_4gib(&io, page_sizes[pick], &r);
 
-    const char *summary = r.count[NRIO_PROBE_DISTINCT] ? "Distinct upper data seen." :
+    const char *summary = r.varying_distinct_upper ? "Upper addresses differ." :
+        r.count[NRIO_PROBE_DISTINCT] ? "Upper reads inconclusive." :
         r.count[NRIO_PROBE_IDENTICAL] >= 2 ? "Upper reads may be mirrored." : "Upper reads inconclusive.";
     consoleClear();
     printf("4 GiB address probe\n\n%s\n\nMatching: %u\nDifferent: %u\nUniform upper: %u\n"

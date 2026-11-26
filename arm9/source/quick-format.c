@@ -183,7 +183,7 @@ static void run_format(const char *root, bool full)
         if (full) printf("Tested blocks %lu\nNew failures %lu\n",
             (unsigned long)result.tested_blocks,
             (unsigned long)(result.bad_blocks - result.known_bad_blocks));
-        puts("Set up XuluMenu or copy\nXMenu files next.");
+        puts("Set up stock XMenu next.");
     } else {
         consoleClear();
         printf("Format stopped.\n%s\nPage %08lX\n", stages[result.stage], (unsigned long)result.page);

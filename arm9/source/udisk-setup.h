@@ -10,8 +10,7 @@ extern "C" {
 
 enum nrio_udisk_setup_action {
     NRIO_UDISK_COPY_MENU,
-    NRIO_UDISK_XULU_FRESH,
-    NRIO_UDISK_XULU_SWITCH,
+    NRIO_UDISK_STOCK_MENU,
     NRIO_UDISK_REMOVE_UPDATER,
 };
 

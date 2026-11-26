@@ -11,6 +11,7 @@ enum nrio_probe_observation {
 
 struct nrio_capacity_report {
     unsigned count[NRIO_PROBE_OBSERVATIONS], sampled;
+    bool varying_distinct_upper;
 };
 
 struct nrio_capacity_probe_io {

@@ -24,6 +24,7 @@
 #include "slot2-usb.h"
 #include "file-browser.h"
 #include "button-legend.h"
+#include "gm9-bundle.h"
 extern "C" const u8 usb_mount_bin[] __attribute__((weak));
 extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 
@@ -370,48 +371,39 @@ void DoCartBoot() {
 
 void DoGM9iBoot() {
 	consoleClear();
-	if(access("sd:/nrioFiles/GM9Nrio.nds", F_OK) != 0 && nitroFSMounted) {
-		FILE *src = fopen("nitro:/GM9Nrio.nds", "rb");
+	const char* filename = "sd:/nrioFiles/GM9Nrio.nds";
+	if (access(filename, F_OK) != 0 && nitroFSMounted) {
+		const char* partial = "sd:/nrioFiles/GM9Nrio.nds.part";
+		FILE *src = fopen("nitro:/GM9Nrio.z", "rb");
 		if (src) {
-			FILE *dest = fopen("sd:/nrioFiles/GM9Nrio.nds", "wb");
+			printf("Unpacking GodMode9Nrio to SD.\nPlease wait...\n");
+			FILE *dest = fopen(partial, "wb");
 			if (dest) {
-				fseek(src, 0, SEEK_END);
-				u32 fSize = ftell(src);
-				fseek(src, 0, SEEK_SET);
-				if (fSize < MAXFILESIZE && fSize > 0) {
-					printf("WARNING: GM9Nrio not found!\n");
-					printf("Trying to use NitroFS copy.\n\n");
-					printf("Please wait...\n");
-					bool copied = CopyBundledFile(src, dest, fSize);
-					fclose(src);
-					if (fclose(dest)) copied = false;
-					if (!copied) remove("sd:/nrioFiles/GM9Nrio.nds");
+				bool copied = nrio_unpack_gm9(src, dest);
+				if (fclose(dest)) copied = false;
+				if (copied && access(filename, F_OK) != 0)
+					copied = rename(partial, filename) == 0;
+				else
+					copied = false;
+				if (!copied) {
+					remove(partial);
+					puts("Could not unpack GodMode9Nrio.");
 				}
 			}
+			fclose(src);
 		}
 	}
-	if (access("sd:/nrioFiles/GM9Nrio.nds", F_OK) == 0) {
-		struct stat st;
-		char filePath[PATH_MAX];
-		int pathLen;
-		const char* filename = "sd:/nrioFiles/GM9Nrio.nds";
-		if (stat (filename, &st) < 0) { ErrorState = true; return; }
-		if (!getcwd (filePath, PATH_MAX)) { ErrorState = true; return; }
-		pathLen = strlen(filename);
-		strcpy (filePath + pathLen, filename);
+	struct stat st;
+	if (stat(filename, &st) == 0 && S_ISREG(st.st_mode)) {
 		runLaunchEngine(-1, st.st_ino, true);
 		ErrorState = true;
 		return;
-	} else {
-		printf("ERROR: GM9Nrio.nds not found!");
-		printf("\n\n\nPress [A] to abort.\n");
-		while(1) {
-			swiWaitForVBlank();
-			scanKeys();
-			if(keysDown() & KEY_A)return;
-		}
 	}
-	return;
+	puts("GM9Nrio.nds not found.\n\nPress A to return.");
+	do {
+		swiWaitForVBlank();
+		scanKeys();
+	} while (!(keysDown() & KEY_A));
 }
 
 void DoSaveTestBoot() {
@@ -760,8 +752,8 @@ enum class MenuAction {
 	DumpMain, DumpStage2, DumpUdisk, DumpBanner, TestDump,
 	BootCart, BootGm9, Usb,
 	CheckCart, SaveBlock0, Advanced, BuildUpdate,
-	PatchSafeMode, BypassSafeMode, InstallBanner, RestoreArm7, RestoreBlock0, ReplaceSafeMode, RepairUdisk, UdiskSetup, QuickFormat, FullFormat,
-	InstallUdisk, InstallXulu, SwitchXulu, CopyXMenu, RemoveUpdater,
+	PatchSafeMode, PatchMainMarker, BypassSafeMode, InstallBanner, RestoreArm7, RestoreBlock0, ReplaceSafeMode, RepairUdisk, UdiskSetup, QuickFormat, FullFormat,
+	InstallUdisk, InstallCustomUdisk, InstallXulu, SetupStockMenu, CopyXMenu, RemoveUpdater,
 	DumpFatSector, RestoreFatSector, DumpFatImage, FormatHelp,
 };
 
@@ -838,19 +830,20 @@ static void RunRecoveryAction(int action, const char *startupRecoveryRoot) {
 	else DoStorageRecovery(action);
 }
 
-static bool launchedFromSd;
+static const char *launchPath;
 
 static void RunUdiskSetupMenu(const char *backupRoot) {
-	const bool canFormat = nrio_can_format(launchedFromSd, wasDSi && sdMounted,
+	const bool canFormat = nrio_can_format(launchPath, wasDSi, sdMounted,
 	                                       !wasDSi && GetSlot2Storage(), fatMounted);
 	const MenuItem items[] = {
 		{MenuAction::QuickFormat, "Quick Format N-Card", canFormat},
 		{MenuAction::FullFormat, "Full Format N-Card", canFormat},
 		{MenuAction::FormatHelp, "Format unavailable", !canFormat},
 		{MenuAction::CheckCart, "Check Cart", !backupRoot},
+		{MenuAction::InstallXulu, "XuluMenu NAND (recommended)"},
 		{MenuAction::InstallUdisk, "Install stock uDisk 1.45"},
-		{MenuAction::InstallXulu, "Set up XuluMenu"},
-		{MenuAction::SwitchXulu, "Switch to XuluMenu"},
+		{MenuAction::InstallCustomUdisk, "Install custom uDisk", backupRoot != nullptr},
+		{MenuAction::SetupStockMenu, "Set up stock XMenu"},
 		{MenuAction::CopyXMenu, "Copy stock/custom XMenu"},
 		{MenuAction::RemoveUpdater, "Delete old uDisk installer"},
 	};
@@ -860,14 +853,15 @@ static void RunUdiskSetupMenu(const char *backupRoot) {
 			case MenuAction::FullFormat: nrioTool_full_format(backupRoot); break;
 			case MenuAction::FormatHelp:
 				DoError("Format needs a separate launch.\n"
-				        "Use DSi SD or a Slot-2 device.\n"
-				        "Slot-1 or unverified launch.\n"
+				        "Mount DSi SD or use Slot-2.\n"
+				        "DS mode needs separate media.\n"
 				        "No changes made.", false);
 				break;
 			case MenuAction::CheckCart: nrioTool_sd_recovery(5, backupRoot); break;
 			case MenuAction::InstallUdisk: nrioTool_sd_recovery(8, backupRoot); break;
-			case MenuAction::InstallXulu: nrioTool_udisk_setup(NRIO_UDISK_XULU_FRESH, backupRoot); break;
-			case MenuAction::SwitchXulu: nrioTool_udisk_setup(NRIO_UDISK_XULU_SWITCH, backupRoot); break;
+			case MenuAction::InstallCustomUdisk: nrioTool_sd_recovery(11, backupRoot); break;
+			case MenuAction::InstallXulu: nrioTool_sd_recovery(10, backupRoot); break;
+			case MenuAction::SetupStockMenu: nrioTool_udisk_setup(NRIO_UDISK_STOCK_MENU, backupRoot); break;
 			case MenuAction::CopyXMenu: nrioTool_udisk_setup(NRIO_UDISK_COPY_MENU, backupRoot); break;
 			case MenuAction::RemoveUpdater: nrioTool_udisk_setup(NRIO_UDISK_REMOVE_UPDATER, backupRoot); break;
 			default: return;
@@ -880,13 +874,14 @@ static void RunAdvancedMenu(const char *startupRecoveryRoot) {
 	const MenuItem items[] = {
 		{MenuAction::InstallBanner, "Install custom banner"},
 		{MenuAction::PatchSafeMode, "Patch safe mode for DSi"},
-		{MenuAction::ReplaceSafeMode, "Replace safe-mode ROM"},
+		{MenuAction::ReplaceSafeMode, "Install/replace safe-mode ROM"},
 		{MenuAction::BypassSafeMode, "Bypass safe mode"},
 		{MenuAction::UdiskSetup, "uDisk setup"},
 		{MenuAction::RepairUdisk, "Repair stock uDisk"},
 		{MenuAction::SaveBlock0, "Dump block 0"},
 		{MenuAction::RestoreBlock0, "Restore block 0"},
 		{MenuAction::RestoreArm7, "Restore banner ARM7"},
+		{MenuAction::PatchMainMarker, "Patch main ARM9 marker"},
 	};
 	while (!ErrorState) {
 		switch (PickAction("Advanced NAND tools", items)) {
@@ -899,6 +894,7 @@ static void RunAdvancedMenu(const char *startupRecoveryRoot) {
 			case MenuAction::SaveBlock0: RunRecoveryAction(2, startupRecoveryRoot); break;
 			case MenuAction::RestoreBlock0: RunRecoveryAction(4, startupRecoveryRoot); break;
 			case MenuAction::RestoreArm7: RunRecoveryAction(3, startupRecoveryRoot); break;
+			case MenuAction::PatchMainMarker: RunRecoveryAction(12, startupRecoveryRoot); break;
 			default: return;
 		}
 	}
@@ -1043,7 +1039,7 @@ void vblankHandler (void) {
 }
 
 int main(int argc, char **argv) {
-	launchedFromSd = argc > 0 && argv && nrio_sd_launch_path(argv[0]);
+	launchPath = argc > 0 && argv ? argv[0] : nullptr;
 	scanKeys();
 	if(keysDown() & KEY_B)autoBootCart = true;
 	wasDSi = isDSiMode();

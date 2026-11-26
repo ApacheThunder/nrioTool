@@ -4,18 +4,20 @@
 #include <stdbool.h>
 #include <string.h>
 
-static inline bool nrio_sd_launch_path(const char *path)
+static inline bool nrio_slot1_launch_path(const char *path)
 {
-    return path && ((!strncmp(path, "sd:/", 4) && path[4]) ||
-                    (!strncmp(path, "sdmc:/", 6) && path[6]));
+    return path && (!strncmp(path, "slot1:/", 7) || !strncmp(path, "cart:/", 6));
 }
 
-/* Mounted DSi SD by itself does not establish where the tool was launched.
-   Slot-2 is independent only if the launch DLDI identifies that interface. */
-static inline bool nrio_can_format(bool sd_launch, bool sd_mounted,
-                                  bool slot2_driver, bool slot2_mounted)
+/* Installed DSi System Menu titles can have no argv. In DSi mode, use
+   the mounted internal SD without relying on a launcher path.
+   DS mode still requires the independent, writable Slot-2 DLDI. */
+static inline bool nrio_can_format(const char *launch_path, bool dsi_mode,
+                                  bool sd_mounted, bool slot2_driver,
+                                  bool slot2_mounted)
 {
-    return (sd_launch && sd_mounted) || (slot2_driver && slot2_mounted);
+    if (dsi_mode) return sd_mounted;
+    return !nrio_slot1_launch_path(launch_path) && slot2_driver && slot2_mounted;
 }
 
 #endif

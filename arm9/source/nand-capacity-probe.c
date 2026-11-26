@@ -23,6 +23,8 @@ bool nrio_probe_4gib(const struct nrio_capacity_probe_io *io, unsigned page_byte
         (page_bytes != 2048 && page_bytes != 4096 && page_bytes != 8192 && page_bytes != 16384))
         return false;
     *report = (struct nrio_capacity_report){0};
+    uint8_t first_distinct[SAMPLE_BYTES];
+    bool have_distinct = false;
     for (unsigned i = 0; i < sizeof(offsets) / sizeof(*offsets); ++i) {
         const uint32_t low = offsets[i], high = low | UINT32_C(0x80000000);
         uint8_t a[SAMPLE_BYTES], b[SAMPLE_BYTES], repeat[SAMPLE_BYTES];
@@ -41,6 +43,16 @@ bool nrio_probe_4gib(const struct nrio_capacity_probe_io *io, unsigned page_byte
                 result = NRIO_PROBE_BLANK;
             else
                 result = memcmp(a, b, SAMPLE_BYTES) ? NRIO_PROBE_DISTINCT : NRIO_PROBE_IDENTICAL;
+        }
+        /* A fixed structured response can come from a controller which
+           ignores the high row address. Don't treat that as upper storage. */
+        if (result == NRIO_PROBE_DISTINCT) {
+            if (!have_distinct) {
+                memcpy(first_distinct, b, SAMPLE_BYTES);
+                have_distinct = true;
+            } else if (memcmp(first_distinct, b, SAMPLE_BYTES)) {
+                report->varying_distinct_upper = true;
+            }
         }
         ++report->count[result];
         ++report->sampled;

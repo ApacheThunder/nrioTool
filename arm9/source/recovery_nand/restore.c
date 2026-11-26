@@ -225,7 +225,7 @@ bool patch_udisk_block_snapshot(u32 page, u32 pages, u8 *records, const u8 *snap
                                 const struct nrio_sector_patch *patches, u32 count, bool install,
                                 struct nrio_raw_write_error *error)
 {
-    enum { MAP = 0x40000, MAP_SIZE = 0x20000, RUNTIME = 0x80000, RUNTIME_END = 0x140000 };
+    enum { MAP = 0x40000, MAP_SIZE = 0x20000, RUNTIME = 0x80000, RUNTIME_END = 0x180000 };
     if ((pages != 64 && pages != 128) || page % pages || page > RUNTIME_END / PAGE_SIZE)
         return false;
     u32 address = page * PAGE_SIZE, erase_bytes = pages * PAGE_SIZE;
@@ -390,7 +390,7 @@ static volatile struct {
 };
 
 static bool live_safe_mode_plan;
-static u32 live_restore_pages;
+static u32 live_restore_pages, live_main_marker_pages;
 static const u8 *live_restore_backup;
 static u32 live_banner_pages;
 enum { BANNER_COPIES = 2 };
@@ -407,6 +407,7 @@ bool nrio_recovery_safe_mode_ready(void)
 uint32_t nrio_recovery_backup_pages(void)
 {
     if (live_safe_mode_plan) return safe_mode_plan.pages;
+    if (live_main_marker_pages) return live_main_marker_pages;
     return live_restore_pages ? live_restore_pages : live_banner_pages;
 }
 
@@ -435,6 +436,7 @@ void discard_live_safe_mode(void)
     live_safe_mode_plan = false;
     live_banner_pages = 0;
     live_restore_pages = 0;
+    live_main_marker_pages = 0;
     live_restore_backup = NULL;
 }
 
@@ -808,5 +810,81 @@ bool install_block0_restore(u32 pages, u8 *records, struct nrio_raw_write_error 
         !read_matching_snapshot(pages, records, error))
         return false;
     for (u32 i = 0; i < pages * PAGE_RECORD_SIZE; ++i) records[i] = live_restore_backup[i];
+    return program_and_verify_block(0, pages, records, false, error);
+}
+
+/* Reproduce the verified DSGBA duplicate-marker removal. These are CRCs
+   of the raw main bytes, not of the decrypted logical ROM. */
+static u32 boot_crc32_update(u32 crc, const u8 *data, u32 length)
+{
+    while (length--) {
+        crc ^= *data++;
+        for (unsigned i = 0; i < 8; ++i)
+            crc = (crc >> 1) ^ ((crc & 1) ? UINT32_C(0xedb88320) : 0);
+    }
+    return crc;
+}
+
+enum nrio_main_marker_status nrio_classify_main_marker(const u8 *records)
+{
+    static const u32 original_cipher = UINT32_C(0x2ccb11bf), edited_cipher = UINT32_C(0x043ee140);
+    static const u8 old_marker[] = {0x70, 0xcd, 0xd8, 0x9e, 0xc6, 0xfc, 0xa5, 0x50};
+    static const u8 new_marker[] = {0xf4, 0x2d, 0x1c, 0xf4, 0xb9, 0x06, 0x53, 0x91};
+    const u8 *header = main_sector(records, 2);
+    const u8 *secure = main_sector(records, 4);
+    const u8 *arm7 = secure + PAGE_SIZE;
+    const u8 *spare4 = records + 4 * PAGE_RECORD_SIZE + PAGE_SIZE;
+    const u8 *spare5 = records + 5 * PAGE_RECORD_SIZE + PAGE_SIZE;
+    const u32 cipher = boot_crc32_update(UINT32_MAX, secure, PAGE_SIZE) ^ UINT32_MAX;
+    if (load_word(header) != UINT32_C(0x42475344) ||
+        load_word(header + 0x0c) != UINT32_C(0x42475344) ||
+        load_word(header + 0x08) != UINT32_C(0x10830000) ||
+        load_word(header + 0x20) != 0x4000 || load_word(header + 0x2c) != 0x4000 ||
+        load_word(header + 0x30) != 0x8800 || load_word(header + 0x3c) != 0x40 ||
+        nrio_safe_mode_crc16(header, 0x15e) != (header[0x15e] | header[0x15f] << 8) ||
+        !nrio_safe_mode_handoff(arm7) || !equal(arm7, spare4, SPARE_SIZE) ||
+        !equal(arm7, spare5, SPARE_SIZE))
+        return NRIO_MARKER_UNRECOGNIZED;
+
+    u32 table_crc = boot_crc32_update(UINT32_MAX, records + 2 * PAGE_RECORD_SIZE, PAGE_SIZE);
+    table_crc = boot_crc32_update(table_crc, records + 3 * PAGE_RECORD_SIZE, PAGE_SIZE) ^ UINT32_MAX;
+    if (table_crc != UINT32_C(0x08ec5e4b)) return NRIO_MARKER_UNRECOGNIZED;
+
+    uint16_t secure_crc = header[0x6c] | header[0x6d] << 8;
+    if (cipher == edited_cipher && secure_crc == 0x3682 && equal(secure + 8, new_marker, 8))
+        return NRIO_MARKER_PATCHED;
+    if (cipher == original_cipher && secure_crc == 0x450d && equal(secure + 8, old_marker, 8))
+        return NRIO_MARKER_ORIGINAL;
+    return NRIO_MARKER_UNRECOGNIZED;
+}
+
+bool prepare_main_marker(u32 pages, u8 *records, struct nrio_raw_write_error *error)
+{
+    live_main_marker_pages = 0;
+    if (!read_banner_block(pages, records, error)) return false;
+    enum nrio_main_marker_status marker = nrio_classify_main_marker(records);
+    if (marker == NRIO_MARKER_PATCHED) return true;
+    if (marker != NRIO_MARKER_ORIGINAL)
+        return fail_write(error, NRIO_RAW_WRITE_SAFE_MODE_PLAN, 0, 0);
+    for (u32 i = 0; i < pages * PAGE_RECORD_SIZE; ++i) safe_mode_plan.expected[i] = records[i];
+    live_main_marker_pages = pages;
+    return true;
+}
+
+bool install_main_marker(u32 pages, u8 *records, struct nrio_raw_write_error *error)
+{
+    if (!live_main_marker_pages || pages != live_main_marker_pages ||
+        !read_matching_snapshot(pages, records, error)) return false;
+    static const u8 patched[] = {0xf4, 0x2d, 0x1c, 0xf4, 0xb9, 0x06, 0x53, 0x91};
+    u8 *secure = records + PAGE_RECORD_SIZE;
+    for (unsigned i = 0; i < sizeof(patched); ++i) secure[8 + i] = patched[i];
+    u8 *header = records + 2 * SECTOR_SIZE;
+    header[0x6c] = 0x82;
+    header[0x6d] = 0x36;
+    const uint16_t crc = nrio_safe_mode_crc16(header, 0x15e);
+    header[0x15e] = (u8)crc;
+    header[0x15f] = (u8)(crc >> 8);
+    /* Pages 0 and 1 carry boot metadata in their spare bytes. They are
+       not ordinary filesystem ECC, and must not be regenerated. */
     return program_and_verify_block(0, pages, records, false, error);
 }

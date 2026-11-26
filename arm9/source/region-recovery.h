@@ -15,6 +15,7 @@ enum nrio_boot_kind {
     NRIO_BOOT_COMPACT,
     NRIO_BOOT_ERASED,
     NRIO_BOOT_XULU,
+    NRIO_BOOT_DIRECT_DS,
 };
 
 struct nrio_boot_rom {
@@ -23,9 +24,13 @@ struct nrio_boot_rom {
 };
 
 struct nrio_boot_rom nrio_inspect_boot(uint32_t table, uint32_t sectors);
+struct nrio_boot_rom nrio_inspect_primary_route(uint32_t sectors);
+bool nrio_safe_mode_arm9_crc(uint32_t sectors, const struct nrio_boot_rom *rom, uint32_t *crc);
 const char *nrio_boot_kind_name(enum nrio_boot_kind kind);
 void nrio_install_region(const char *root, const struct nrio_raw_info *info,
                          void *snapshot, bool udisk, bool bios);
+void nrio_install_custom_udisk(const char *root, const struct nrio_raw_info *info, uint8_t *snapshot);
+void nrio_install_hidden_xulu(const char *root, const struct nrio_raw_info *info, uint8_t *snapshot);
 typedef bool (*nrio_block0_saver)(const char *root, const struct nrio_raw_info *info,
                                  const uint8_t *records);
 void nrio_bypass_safe_mode(const char *root, const struct nrio_raw_info *info,

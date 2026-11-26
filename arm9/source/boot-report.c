@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -18,7 +19,7 @@
 #include "udisk-setup-io.h"
 #include "udisk-upgrade-check.h"
 
-enum { PAGE_COUNT = 5, REPORT_LINES = 12, LINE_BYTES = 32, SECTOR = 512 };
+enum { PAGE_COUNT = 6, REPORT_LINES = 20, VISIBLE_LINES = 12, LINE_BYTES = 32, SECTOR = 512 };
 struct report_page { char line[REPORT_LINES][LINE_BYTES]; unsigned count; };
 enum menu_file { NOT_CHECKED, MISSING, VALID_HEADER, UNKNOWN_HEADER, READ_ERROR };
 enum early_state { NO_READ, ERASED, KNOWN_HEADER, UNKNOWN_MAIN };
@@ -63,6 +64,18 @@ static enum early_state check_early(unsigned pages)
         if (!blank_ff(spare, sizeof(spare))) return UNKNOWN_MAIN;
     }
     return ERASED;
+}
+
+static bool shared_table_repeats(void)
+{
+    uint8_t first[SPARE_SIZE], second[SPARE_SIZE];
+    if (!nand_load_page(2, true) || !nand_read_spare(first) ||
+        !nand_load_page(3, true) || !nand_read_spare(second)) return false;
+    /* The archived DS Linker records repeat 56 bytes across both pages.
+       Show the shape only. This is not a full key or cart identity check. */
+    for (unsigned i = 1; i < 56; ++i)
+        if (first[i] != first[0]) return !memcmp(first, second + 8, 56);
+    return false;
 }
 
 static bool read_sector(void *unused, uint32_t lba, uint8_t data[SECTOR])
@@ -132,17 +145,35 @@ static void write_report(const char *root, const struct report_page *pages)
     fclose(f);
 }
 
+static void print_fingerprint(struct report_page *page, uint32_t sectors,
+                              const char *label, uint32_t address, uint32_t bytes)
+{
+    uint32_t crc;
+    enum nrio_boot_fingerprint_status status =
+        nrio_boot_fingerprint(read_sector, NULL, sectors, address, bytes, &crc);
+    if (status == NRIO_BOOT_HASH_OK)
+        line(page, "%s %08lX", label, (unsigned long)crc);
+    else {
+        static const char *const names[] = {
+            "not available", "read failed", "changed on retry", "all FF", "all 00",
+        };
+        line(page, "%s %s", label, names[status]);
+    }
+}
+
 static enum nrio_report_action show_report(const struct report_page *pages, bool backup_available,
                                             bool scan_available, const char *root)
 {
-    unsigned selected = 0;
+    unsigned selected = 0, offset = 0;
     for (;;) {
         consoleClear();
         printf("Check Cart  %u/%u\n\n", selected + 1, PAGE_COUNT);
         const struct report_page *p = &pages[selected];
-        for (unsigned i = 0; i < REPORT_LINES; ++i)
-            puts(i < p->count ? p->line[i] : "");
-        nrio_button_legend("L Help  R Retry  A/B Back", "Left/Right Page");
+        const unsigned max_offset = p->count > VISIBLE_LINES ? p->count - VISIBLE_LINES : 0;
+        for (unsigned i = 0; i < VISIBLE_LINES; ++i)
+            puts(i + offset < p->count ? p->line[i + offset] : "");
+        nrio_button_legend("L Help  R Retry  A/B Back",
+                           max_offset ? "Up/Down Scroll  Left/Right Pg" : "Left/Right Page");
         printf("\n%s", backup_available ? "X Backup  Y Scan  SEL 4GiB"
                              : scan_available ? "Y Scan  SEL 4GiB" : "SEL 4GiB probe");
         for (;;) {
@@ -151,12 +182,14 @@ static enum nrio_report_action show_report(const struct report_page *pages, bool
             unsigned key = keysDown();
             if (key & (KEY_A | KEY_B)) return NRIO_REPORT_BACK;
             if (key & KEY_R) return NRIO_REPORT_RETRY;
-            if (key & KEY_L) { selected = PAGE_COUNT - 1; break; }
+            if (key & KEY_L) { selected = PAGE_COUNT - 1; offset = 0; break; }
             if (backup_available && (key & KEY_X)) return NRIO_REPORT_BACKUP;
             if (scan_available && (key & KEY_Y)) { nrio_nand_health_ui(root); break; }
             if (key & KEY_SELECT) { nrio_capacity_probe_ui(root); break; }
-            if (key & KEY_LEFT) { selected = (selected + PAGE_COUNT - 1) % PAGE_COUNT; break; }
-            if (key & KEY_RIGHT) { selected = (selected + 1) % PAGE_COUNT; break; }
+            if ((key & KEY_UP) && offset) { --offset; break; }
+            if ((key & KEY_DOWN) && offset < max_offset) { ++offset; break; }
+            if (key & KEY_LEFT) { selected = (selected + PAGE_COUNT - 1) % PAGE_COUNT; offset = 0; break; }
+            if (key & KEY_RIGHT) { selected = (selected + 1) % PAGE_COUNT; offset = 0; break; }
         }
     }
 }
@@ -165,7 +198,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
 {
     struct report_page pages[PAGE_COUNT] = {0};
     struct report_page *summary = &pages[0], *nand = &pages[1], *boot = &pages[2], *files = &pages[3];
-    struct report_page *help = &pages[4];
+    struct report_page *survivors = &pages[4], *help = &pages[5];
     line(help, "What to try next");
     line(help, "");
     line(summary, "Summary");
@@ -173,6 +206,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
     line(nand, "NAND and early boot");
     line(boot, "Boot tables");
     line(files, "FAT and menu files");
+    line(survivors, "Surviving boot data");
     if (!info) {
         uint32_t id;
         if (nand_read_probe_id(&id) && id && id != UINT32_MAX) {
@@ -198,6 +232,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
         }
         line(boot, "Not checked.");
         line(files, "Not checked.");
+        line(survivors, "NAND unavailable.");
         write_report(root, pages);
         return show_report(pages, false, false, root);
     }
@@ -212,19 +247,88 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
                     ? "DSGB boot header found." : early == NO_READ
                     ? "Early NAND read failed." : "Unknown early main data.");
     if (early == ERASED) line(nand, "Main and spare both erased.");
+    if (early == KNOWN_HEADER && shared_table_repeats())
+        line(nand, "Shared table repeats in spare.");
 
-    struct nrio_boot_rom first = nrio_inspect_boot(NRIO_RAW_PRIMARY_TABLE, info->sectors);
-    struct nrio_boot_rom second = nrio_inspect_boot(NRIO_RAW_SECONDARY_TABLE, info->sectors);
+    if (early == KNOWN_HEADER) {
+        const size_t bytes = NRIO_MAIN_MARKER_PROBE_PAGES * PAGE_RECORD_SIZE;
+        uint8_t *records = malloc(bytes);
+        if (records) {
+            enum nrio_main_marker_status marker = nrio_recovery_probe_main_marker(records, bytes);
+            free(records);
+            line(nand, "%s", marker == NRIO_MARKER_ORIGINAL ? "Main ARM9 marker: supported" :
+                            marker == NRIO_MARKER_PATCHED ? "Main ARM9 marker: patched" :
+                            marker == NRIO_MARKER_READ_ERROR ? "Main ARM9 marker: read failed" :
+                            "Main ARM9 marker: unknown");
+        }
+    }
+
+    struct nrio_boot_rom first = nrio_inspect_primary_route(info->sectors);
+    /* Some single-game carts have a repeated marker where nrioTool would
+       normally look for a second map. It is not a verified DS ROM header. */
+    bool game_marker = false;
+    if (first.kind == NRIO_BOOT_UNKNOWN && first.address == NRIO_RAW_SECONDARY_TABLE) {
+        uint8_t sector[SECTOR];
+        if (read_sector(NULL, first.address / SECTOR, sector)) {
+            game_marker = true;
+            for (unsigned i = 0; i < 32; i += 8)
+                game_marker &= !memcmp(sector + i, "<<GAME>>", 8);
+        }
+    }
+    const bool primary_occupies_secondary = nrio_report_primary_occupies_secondary(first, game_marker);
+    struct nrio_boot_rom second = {.kind = NRIO_BOOT_UNKNOWN};
+    if (!primary_occupies_secondary)
+        second = nrio_inspect_boot(NRIO_RAW_SECONDARY_TABLE, info->sectors);
+    if (second.kind == NRIO_BOOT_UDISK) {
+        enum nrio_udisk_capture capture = nrio_identify_udisk_capture(read_sector, NULL, info->sectors);
+        if (capture == NRIO_UDISK_CAPTURE_FIRE8)
+            line(boot, "Fire Link 8G map (rev 1).");
+        else if (capture == NRIO_UDISK_CAPTURE_FIRE16)
+            line(boot, "Fire Link 16G map match.");
+    }
     add_rom(boot, "Primary 0x8000", &first);
-    add_rom(boot, "Secondary 0x40000", &second);
-    enum nrio_udisk_layout udisk = nrio_udisk_classify(read_sector, NULL, info->sectors);
+    uint32_t safe_arm9;
+    if (nrio_safe_mode_arm9_crc(info->sectors, &first, &safe_arm9))
+        line(boot, " Safe ARM9 CRC %08lX", (unsigned long)safe_arm9);
+    if (game_marker)
+        line(boot, "0x40000 has a <<GAME>> marker.");
+    else if (primary_occupies_secondary)
+        line(boot, "0x40000 holds the primary ROM.");
+    else
+        add_rom(boot, "Secondary 0x40000", &second);
+    enum nrio_udisk_layout udisk = primary_occupies_secondary ? NRIO_UDISK_LAYOUT_UNKNOWN :
+        nrio_udisk_classify(read_sector, NULL, info->sectors);
     const char *version = udisk == NRIO_UDISK_LAYOUT_STOCK_145 ? "uDisk 1.45 recognized" :
                           udisk == NRIO_UDISK_LAYOUT_LEGACY_123 ? "uDisk 1.23 recognized" :
                           first.kind == NRIO_BOOT_XULU || second.kind == NRIO_BOOT_XULU ?
                           "Hidden XuluMenu header found" :
                           first.kind == NRIO_BOOT_UDISK || second.kind == NRIO_BOOT_UDISK ?
                           "uDisk-like header found" : "uDisk version unrecognized";
+    if (udisk == NRIO_UDISK_LAYOUT_UNKNOWN) {
+        const struct nrio_udisk_archive *archive = primary_occupies_secondary ? NULL :
+            nrio_identify_archived_udisk(read_sector, NULL, info->sectors, NRIO_RAW_SECONDARY_TABLE);
+        const bool secondary_archive = archive != NULL;
+        if (!archive) archive = nrio_identify_archived_udisk(read_sector, NULL, info->sectors,
+                                                            NRIO_RAW_PRIMARY_TABLE);
+        if (archive) {
+            version = archive->name;
+            line(boot, "%s archive match", secondary_archive ? "Secondary" : "Primary");
+        }
+    }
     line(boot, "%s", version);
+
+    line(survivors, "Read twice, standard CRC32");
+    if (erase_pages == 64)
+        print_fingerprint(survivors, info->sectors, "020000 sector", 0x20000, SECTOR);
+    print_fingerprint(survivors, info->sectors, "040000 sector", 0x40000, SECTOR);
+    print_fingerprint(survivors, info->sectors, "040000 128 KiB", 0x40000, 0x20000);
+    print_fingerprint(survivors, info->sectors, "080000 sector", 0x80000, SECTOR);
+    if (second.address && second.address != 0x80000 && second.address >= 0x60000 &&
+        second.address % 0x4000 == 0) {
+        line(survivors, "Mapped sector %08lX", (unsigned long)second.address);
+        print_fingerprint(survivors, info->sectors, "CRC", second.address, SECTOR);
+    }
+    line(survivors, "Match does not approve write.");
 
     enum fat_state fat;
     struct nrio_fat_check map;
@@ -287,10 +391,16 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
     } else if (early == NO_READ || first.kind == NRIO_BOOT_READ_ERROR) {
         line(summary, "Early boot data read failed.");
         line(summary, "Retry or save read-only dumps.");
+    } else if (game_marker) {
+        line(summary, "Single-game layout marker.");
+        line(summary, "Firmware route unverified.");
     } else if (first.kind == NRIO_BOOT_ERASED || first.kind == NRIO_BOOT_SKIPPED ||
                first.kind == NRIO_BOOT_UNKNOWN) {
         line(summary, "Primary boot route not found.");
         line(summary, "See Boot tables for details.");
+    } else if (first.kind == NRIO_BOOT_DIRECT_DS) {
+        line(summary, "Direct boot DS ROM found.");
+        line(summary, "uDisk/FAT may be absent.");
     } else if (first.kind != NRIO_BOOT_UDISK && first.kind != NRIO_BOOT_XULU && second.kind == NRIO_BOOT_ERASED) {
         line(summary, "Secondary boot table is blank.");
         line(summary, "Safe mode may have no uDisk.");
@@ -315,6 +425,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
         line(help, "Use a verified same-cart");
         line(help, "backup if you have one.");
         if (root) line(help, "X checks a saved backup.");
+        line(help, "See Surviving boot data.");
         line(help, "Formatting won't fix boot.");
     } else if (early == NO_READ || first.kind == NRIO_BOOT_READ_ERROR ||
                fat == PROBE_LOST || (fat == MISSING_MAP && map.read_errors)) {
@@ -322,6 +433,9 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
         line(help, "Y scans for NAND read errors.");
         line(help, "Save readable data before");
         line(help, "attempting a repair.");
+    } else if (game_marker || first.kind == NRIO_BOOT_DIRECT_DS) {
+        line(help, "Save a raw dump before repair.");
+        line(help, "Don't format to test boot.");
     } else if (fat != MOUNTED) {
         line(help, "R retries the read-only check.");
         line(help, "Y scans for NAND read errors.");

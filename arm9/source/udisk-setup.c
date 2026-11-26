@@ -196,17 +196,18 @@ static enum nrio_file_result copy_from(const char *root, const char *file,
     return nrio_copy_new_file(source, destination, temporary, expected);
 }
 
-static void copy_menu(const char *root)
+static void copy_menu(const char *root, bool force_stock)
 {
     struct nrio_file_id xmenu, ids[sizeof(custom_assets) / sizeof(*custom_assets)];
-    const bool custom = custom_set_present(root, &xmenu, ids);
+    const bool custom = !force_stock && custom_set_present(root, &xmenu, ids);
     if (!custom && !starter_set_present(&xmenu, ids)) {
         report("Built-in XMenu set missing.\nUse the complete nrioTool ROM.\n");
         return;
     }
     if (!mount_cart()) return;
     report(custom ? "\nCopy complete custom XMenu set?\n" : "\nCopy built-in XMenu starter?\n");
-    report("Existing files are kept.\nL+R+A Copy   B Back\n");
+    if (force_stock) report("Known Xulu wrapper is backed up.\n");
+    report("Other files are kept.\nL+R+A Copy   B Back\n");
     if (!nrio_udisk_confirm()) goto unmount;
 
     consoleClear();
@@ -231,83 +232,25 @@ static void copy_menu(const char *root)
             goto unmount;
         }
     }
-    enum nrio_file_result result = copy_from(custom ? root : NULL, "xmenu.dat", "cart:/xmenu.dat",
-                                             "cart:/nrxm.part", NRIO_ASSET_XMENU, xmenu);
-    if (result == NRIO_FILE_OK) report("XMenu files ready.\n");
-    else if (result == NRIO_FILE_EXISTS) report("Kept existing xmenu.dat.\n");
-    else report("Could not copy xmenu.dat.\n");
-
-unmount:
-    nrioTool_unmount_setup_cart();
-}
-
-static void setup_xulu(bool allow_switch)
-{
-    struct nrio_file_id stock, launcher, ids[sizeof(starter_assets) / sizeof(*starter_assets)];
-    if (!starter_set_present(&stock, ids) ||
-        !nrio_asset_info(NRIO_ASSET_XULU, &launcher.bytes, &launcher.crc)) {
-        report("Built-in XuluMenu set missing.\n");
-        return;
-    }
-    if (!mount_cart()) return;
-
-    struct stat st;
-    if (stat("cart:/xmenu.dat", &st) == 0) {
-        if (nrio_file_matches("cart:/xmenu.dat", launcher)) {
-            report("XuluMenu already installed.\n");
-            goto unmount;
-        }
-        if (!allow_switch) {
-            report("Existing xmenu.dat kept.\nUse Switch to XuluMenu\nto change an existing cart.\n");
-            goto unmount;
-        }
-        if (!S_ISREG(st.st_mode)) {
-            report("xmenu.dat is not a file.\nNo changes made.\n");
-            goto unmount;
-        }
-    } else if (errno != ENOENT) {
-        report("Could not check xmenu.dat.\nNo changes made.\n");
-        goto unmount;
-    }
-
-    report("\nInstall file-based XuluMenu?\nL+R+A Install   B Back\n");
-    if (!nrio_udisk_confirm()) goto unmount;
-    consoleClear();
-
-    if (mkdir("cart:/DSYSTEM", 0777) && errno != EEXIST) {
-        report("Could not make DSYSTEM on cart.\n");
-        goto unmount;
-    }
-    for (unsigned i = 0; i < sizeof(starter_assets) / sizeof(*starter_assets); ++i) {
-        char path[56];
-        snprintf(path, sizeof(path), "cart:/DSYSTEM/%s", starter_assets[i]);
-        unsigned asset = NRIO_ASSET_C_FILE + i;
-        enum nrio_file_result result = nrio_write_new_file(path, "cart:/DSYSTEM/nrio.part",
-                                                            ids[i], write_embedded, &asset);
-        if (result != NRIO_FILE_OK && result != NRIO_FILE_EXISTS) {
-            report("Could not seed DSYSTEM.\nActive menu was not changed.\n");
-            goto unmount;
-        }
-    }
-    switch (nrio_install_xulu_files("cart:", allow_switch, launcher, stock, write_embedded,
-                                    NRIO_ASSET_XULU, NRIO_ASSET_XMENU)) {
+    if (force_stock) {
+        struct nrio_file_id launcher;
+        if (!nrio_asset_info(NRIO_ASSET_XULU, &launcher.bytes, &launcher.crc)) goto unmount;
+        switch (nrio_restore_stock_menu("cart:", launcher, xmenu, write_embedded, NRIO_ASSET_XMENU)) {
         case NRIO_XULU_OK:
-            report("XuluMenu installed.\nOpen xmenu.nds for stock XMenu.\n");
+            report("Stock XMenu ready.\nOld file kept as xulu-old.nds\nif it was the legacy wrapper.\n");
             break;
-        case NRIO_XULU_ALREADY: report("XuluMenu already installed.\n"); break;
-        case NRIO_XULU_UNCHANGED: report("Existing xmenu.dat kept.\n"); break;
-        case NRIO_XULU_ALIAS_CONFLICT:
-            report("A backup filename is in use.\nxmenu.nds or xmenu-old.nds\nActive menu was not changed.\n");
-            break;
-        case NRIO_XULU_RESTORE_FAILED:
-            report("Could not restore xmenu.dat.\nOriginal kept as a backup.\n");
-            break;
-        case NRIO_XULU_OLD_KEPT:
-            report("XuluMenu installed.\nExtra backup kept as xulu.old.\n");
-            break;
-        default:
-            report("Could not install XuluMenu.\nCheck free space and xulu files.\n");
-            break;
+        case NRIO_XULU_ALREADY: report("Stock XMenu already present.\n"); break;
+        case NRIO_XULU_UNCHANGED: report("Custom xmenu.dat kept.\n"); break;
+        case NRIO_XULU_ALIAS_CONFLICT: report("Backup or staging name in use.\nActive menu not changed.\n"); break;
+        case NRIO_XULU_RESTORE_FAILED: report("Could not restore xmenu.dat.\nOld file is xulu-old.nds.\n"); break;
+        default: report("Could not set up stock XMenu.\n"); break;
+        }
+    } else {
+        enum nrio_file_result result = copy_from(custom ? root : NULL, "xmenu.dat", "cart:/xmenu.dat",
+                                                 "cart:/nrxm.part", NRIO_ASSET_XMENU, xmenu);
+        if (result == NRIO_FILE_OK) report("XMenu files ready.\n");
+        else if (result == NRIO_FILE_EXISTS) report("Kept existing xmenu.dat.\n");
+        else report("Could not copy xmenu.dat.\n");
     }
 
 unmount:
@@ -345,9 +288,8 @@ void nrioTool_udisk_setup(enum nrio_udisk_setup_action action, const char *root)
     consoleClear();
     report("\nuDisk setup\n");
     switch (action) {
-        case NRIO_UDISK_COPY_MENU: copy_menu(root); break;
-        case NRIO_UDISK_XULU_FRESH: setup_xulu(false); break;
-        case NRIO_UDISK_XULU_SWITCH: setup_xulu(true); break;
+        case NRIO_UDISK_COPY_MENU: copy_menu(root, false); break;
+        case NRIO_UDISK_STOCK_MENU: copy_menu(NULL, true); break;
         case NRIO_UDISK_REMOVE_UPDATER: remove_updater(); break;
     }
     close_log();

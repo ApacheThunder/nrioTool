@@ -10,6 +10,7 @@
 
 #include "region-recovery.h"
 #include "boot-report.h"
+#include "block0-backup-check.h"
 
 enum { SECTOR = 512, PAGE = 2048, SPARE = 64, MAP_BLOCK = 0x4000, BACKUP_LIMIT = 1000 };
 static const char backup_tag[8] = "NRIOB01";
@@ -130,6 +131,12 @@ static bool save_backup_impl(const char *root, bool prepared, const struct nrio_
     FILE *metadata = ok ? fopen(info_path, "wb") : NULL;
     ok = metadata && fwrite(&info, 1, sizeof(info), metadata) == sizeof(info);
     if (metadata && fclose(metadata)) ok = false;
+    if (ok) {
+        uint32_t metadata_crc = nrio_update_crc32(UINT32_MAX, (const uint8_t *)&info, sizeof(info));
+        ok = nrio_backup_check_file(main_path, info.pages * PAGE, info.main_crc, nrio_update_crc32) &&
+             nrio_backup_check_file(spare_path, info.pages * SPARE, info.spare_crc, nrio_update_crc32) &&
+             nrio_backup_check_file(info_path, sizeof(info), metadata_crc, nrio_update_crc32);
+    }
     if (!ok) {
         remove(main_path);
         remove(spare_path);
@@ -422,6 +429,40 @@ static void restore_banner_spare(const char *root, const struct nrio_raw_info *i
     }
 }
 
+static void patch_main_marker(const char *root, const struct nrio_raw_info *info)
+{
+    if (!root) { puts("Need SD or Slot-2 for backup."); return; }
+    if (!nrio_recovery_prepare_main_marker()) {
+        puts("Main ROM/layout not recognized.\nNo NAND changes made.");
+        nrio_show_write_error();
+        return;
+    }
+    if (!nrio_recovery_backup_pages()) {
+        puts("Main ROM marker already patched.");
+        return;
+    }
+    uint8_t anchors[2][SECTOR];
+    if (!read_anchors(anchors) || !informative_anchors(anchors)) {
+        puts("Backup would not be restorable.\nBoot anchors are missing.");
+        return;
+    }
+    if (!save_backup(root, true, info)) {
+        puts("Could not verify the backup.");
+        return;
+    }
+    puts("Remove duplicate ARM9 marker.\nKeep the original spare data.");
+    if (!nrio_confirm_write()) return;
+    uint8_t current[2][SECTOR];
+    if (!read_anchors(current) || memcmp(current, anchors, sizeof(current))) {
+        puts("Boot anchors changed. No write.");
+        return;
+    }
+    nrio_region_screen("Writing boot block");
+    if (nrio_recovery_install_main_marker())
+        puts("Block 0 verified.\nRestart to test boot.");
+    else nrio_show_write_error();
+}
+
 static void restore_saved_block0(const char *root, const struct nrio_raw_info *info)
 {
     int index = choose_backup(root, "Restore block 0");
@@ -504,14 +545,20 @@ void nrioTool_sd_recovery(int action, const char *root)
     }
     enum nrio_raw_mode mode = (action == 1 || action == 3)
         ? NRIO_RAW_SD_BANNER_INSTALL : NRIO_RAW_SAFE_MODE_INSTALL;
-    if (action == 4) mode = NRIO_RAW_SD_BLOCK0_RESTORE;
-    if (action >= 6 && action <= 9) mode = NRIO_RAW_SD_REGION_INSTALL;
+    if (action == 4 || action == 12) mode = NRIO_RAW_SD_BLOCK0_RESTORE;
+    if (action >= 6 && action <= 11) mode = NRIO_RAW_SD_REGION_INSTALL;
     if (!select_view(mode, &info)) {
         puts("Could not probe Slot-1 NAND.");
     } else if (action == 2) {
         if (!save_backup(root, false, &info)) puts("Could not save the block-0 backup.");
     } else if (!nrio_recovery_bind_workspace(workspace, sizeof(workspace))) {
         puts("Could not reserve the erase buffer.");
+    } else if (action == 12) {
+        patch_main_marker(root, &info);
+    } else if (action == 11) {
+        nrio_install_custom_udisk(root, &info, restore_image);
+    } else if (action == 10) {
+        nrio_install_hidden_xulu(root, &info, restore_image);
     } else if (action == 9) {
         nrio_bypass_safe_mode(root, &info, restore_image, save_snapshot_block0);
     } else if (action >= 6 && action <= 8) {

@@ -128,6 +128,31 @@ bool nrio_recovery_install_block0_restore(void)
     return install_block0_restore(geometry.pages_per_block, workspace, &write_error);
 }
 
+enum nrio_main_marker_status nrio_recovery_probe_main_marker(void *records, uint32_t bytes)
+{
+    if (active_mode != NRIO_RAW_MAIN_READ || !geometry.sectors ||
+        !records || bytes < NRIO_MAIN_MARKER_PROBE_PAGES * PAGE_RECORD_SIZE)
+        return NRIO_MARKER_READ_ERROR;
+    struct nrio_raw_write_error error;
+    if (!read_block_snapshot(0, NRIO_MAIN_MARKER_PROBE_PAGES, records, &error))
+        return NRIO_MARKER_READ_ERROR;
+    return nrio_classify_main_marker(records);
+}
+
+bool nrio_recovery_prepare_main_marker(void)
+{
+    if (active_mode != NRIO_RAW_SD_BLOCK0_RESTORE || !workspace ||
+        write_error.stage != NRIO_RAW_WRITE_NONE) return false;
+    return prepare_main_marker(geometry.pages_per_block, workspace, &write_error);
+}
+
+bool nrio_recovery_install_main_marker(void)
+{
+    if (active_mode != NRIO_RAW_SD_BLOCK0_RESTORE || !workspace ||
+        write_error.stage != NRIO_RAW_WRITE_NONE) return false;
+    return install_main_marker(geometry.pages_per_block, workspace, &write_error);
+}
+
 bool nrio_recovery_repair_table(const struct nrio_raw_table_plan *plan)
 {
     if (active_mode != NRIO_RAW_TABLE_REPAIR || !plan || !workspace ||

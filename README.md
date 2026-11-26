@@ -29,9 +29,12 @@ Tested:
 
 ## Format and set up the cart
 
-Open **Utility Menu → Advanced NAND tools → uDisk setup**. **Quick Format** rebuilds FAT and skips marked or failed blocks. **Full Format** also write-tests usable data blocks and records newly failed ones. Both erase cart files, preserve boot firmware, and require a verified SD launch or an independent Slot-2 mount. They replace **Write default FAT image** and its custom-image override.
+Open **Utility Menu → Advanced NAND tools → uDisk setup**. **Quick Format** rebuilds FAT and skips marked or failed blocks. **Full Format** also write-tests usable data blocks and records newly failed ones. Both erase cart files, preserve boot firmware, and require a mounted internal SD in DSi mode or an independent Slot-2 mount in DS mode. Installed DSi System Menu titles do not need launch arguments. Explicit Slot-1 launches are blocked in DS mode. They replace **Write default FAT image** and its custom-image override.
 
-After formatting, run **Set up XuluMenu** or **Copy stock/custom XMenu** before rebooting. The default XuluMenu setup keeps stock XMenu as `xmenu.nds`. Menu setup streams the compressed starter files without relying on NitroFS. **Install stock uDisk 1.45** updates the hidden firmware on supported layouts without formatting. **Delete old uDisk installer** only removes a recognized leftover `autorun1.nds`.
+After formatting, run **Set up stock XMenu** before rebooting. That option also replaces the exact old file-based XuluMenu wrapper, saving it as `xulu-old.nds`. Custom XMenu files are left alone. **XuluMenu NAND (recommended)** is the recommended firmware option for supported carts. It replaces hidden stock uDisk, not `xmenu.dat`. It requires the normal [XuluMenu 1.4.1 payload](https://github.com/ApacheThunder/XuluMenu/blob/7ceabcbc9331f84a8c4fcde38b6f60193405ee8a/XulumenuUpdator/NitroFS/xulumenu.bin) under `nrioFiles` on independent storage, a supported boot layout and a NAND backup before writing. Menu setup streams the compressed starter files without relying on NitroFS. **Install stock uDisk 1.45** updates hidden firmware without formatting. Exact archive matches for DS Linker, DS Fire Link, Ultra FlashPass EX, and older stock uDisk releases can qualify on verified maps with independent backup storage. Fire Link 1.23o detection is read-only. **Delete old uDisk installer** only removes a recognized leftover `autorun1.nds`.
+
+ **Install custom uDisk** accepts `nrioFiles/udisk-replacement.nds` (compact, unpacked NRIO ROM, at most 1 MiB). The confirmation shows whether it will publish at secondary `0x40000` or fall back to primary `0x8000` on a verified direct-boot layout. **Install/replace safe-mode ROM** can also provision an erased, non-overlapping safe-mode area on a direct-boot cart. It warns if there is no secondary uDisk route. Both save main and spare snapshots before writing.
+
 
 Quick Format has been tested on physical carts. Full Format and the latest driver changes have host regression coverage and still need hardware verification.
 
@@ -113,6 +116,15 @@ If the cart stops booting, launch nrioTool from the DSi SD card or Slot-2 storag
 
 After the app saves the current block to a separate backup folder, hold **L + R** and press **A** to restore. It checks the live snapshot before erase and verifies every main and spare byte after writing. This restores block 0 only. If block 0 is erased and there is no prior backup, the narrower ARM7 repair can help only when its required copies survive. The new startup shortcut and full restore still need a physical DSi test.
 
+**GodMode9Nrio:** The built-in copy is compressed in NitroFS and unpacked
+to `sd:/nrioFiles/GM9Nrio.nds` only when launched without an existing SD copy.
+The existing SD copy is left alone.
+
+**FPGA DS Linker:** Apache Thunder confirmed on hardware that he could
+restore safe mode on a bypassed cart, replace it with the ROM that matches
+that cart, and still boot through to uDisk/XuluMenu. A successful write does
+not make the newer safe-mode ROM compatible with the FPGA revision.
+
 ## Developer note
 
 The recovery features were developed with assistance from AI language models. Some source code was generated or refined using AI, then reviewed, modified and integrated where appropriate.
@@ -121,3 +133,11 @@ The recovery features were developed with assistance from AI language models. So
 lifehackerhansol: Improvements to file read logic.
 
 SylverReZ: Troubleshooting bugs.
+
+Check Cart reports when the primary table points to a direct-boot DS ROM at `0x40000` and when the known spare overlap repeats on pages 2 and 3. These are read-only observations.
+
+**Patch main ARM9 marker** reproduces the duplicate-marker edit on the verified ExpressCard layout. It saves a block-0 backup on independent storage and preserves all spare records. It is not a general main-ROM installer.
+
+**Check Cart → NAND and early boot** reports whether the main ARM9 marker is supported, already patched, unknown, or unreadable. It never stages a write. Block-0 backups are reopened and checked for exact sizes and CRCs before nrioTool reports them as saved.
+
+**Older firmware recognition.** Check Cart identifies known DS Linker, DS Fire Link, Ultra FlashPass EX, and older stock uDisk images using two sectors from the mapped ROM. The SRL dumper uses the recognized wrapper length and retains the last mapped block padding. Archive recognition alone does not authorize writes or add support for new NAND geometry.

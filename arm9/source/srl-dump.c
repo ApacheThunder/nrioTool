@@ -1,4 +1,5 @@
 #include "srl-dump.h"
+#include "udisk-upgrade-check.h"
 
 #include <string.h>
 
@@ -59,6 +60,12 @@ static bool valid_section(const uint8_t *header, uint32_t size, uint32_t field)
     return start >= SECTOR && start < size && length && length <= size - start;
 }
 
+static bool read_srl_sector(void *context, uint32_t lba, uint8_t sector[SECTOR])
+{
+    (void)context;
+    return nrio_recovery_read(lba, 1, sector);
+}
+
 bool nrio_srl_plan(uint32_t table, uint32_t sectors,
                    uint32_t addresses[NRIO_SRL_MAP_ENTRIES], uint32_t *blocks)
 {
@@ -71,6 +78,12 @@ bool nrio_srl_plan(uint32_t table, uint32_t sectors,
     if (size <= NRIO_SRL_MAP_ENTRIES * NRIO_SRL_MAP_BLOCK &&
         valid_section(data, size, 0x20) && valid_section(data, size, 0x30))
         required = (size + NRIO_SRL_MAP_BLOCK - 1) / NRIO_SRL_MAP_BLOCK;
+
+    if (!required) {
+        const struct nrio_udisk_archive *archive =
+            nrio_identify_archived_udisk(read_srl_sector, NULL, sectors, table);
+        if (archive && archive->wrapped) required = (archive->bytes + NRIO_SRL_MAP_BLOCK - 1) / NRIO_SRL_MAP_BLOCK;
+    }
 
     uint32_t limit = required ? required : NRIO_SRL_MAP_ENTRIES;
     const uint32_t entries_per_sector = SECTOR / 4;
