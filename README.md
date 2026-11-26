@@ -4,18 +4,6 @@ Inspect, back up, and repair N-Card and compatible clones on a Nintendo DS,
 DS Lite, or DSi. You can also dump hidden SRLs, manage files, and mount a
 working cart filesystem over USB with a Slot-2 writer.
 
-## Start here
-
-If you’re not sure what went wrong, open **Utility Menu → Check Cart** first.
-It can check the NAND, boot tables, and filesystem without writing to the cart.
-
-| What you want to do | Guide |
-| --- | --- |
-| Find out why the cart won’t boot, check NAND health, or make a backup | [Diagnose and back up a cart](docs/diagnose-and-back-up.md) |
-| Recover a white-screening or bricked cart, with or without a backup | [Recover a cart that won’t boot](docs/recover-a-bricked-cart.md) |
-| Fix safe mode for DSi, replace a safe-mode ROM, or undo a bypass | [Patch, replace, or bypass safe mode](docs/safe-mode.md) |
-| Update stock uDisk, install XuluMenu, or rebuild the filesystem | [Update, format, and set up a cart](docs/update-and-format.md) |
-
 ## List of Known Carts
 
 <p align="center">
@@ -30,6 +18,18 @@ Tested carts include
 
 A cart being listed or identified by Check Cart does not mean every write
 operation supports its hardware or current boot layout.
+
+## Start here
+
+If you’re not sure what went wrong, open **Utility Menu → Check Cart** first.
+It can check the NAND, boot tables, and filesystem without writing to the cart.
+
+| What you want to do | Guide |
+| --- | --- |
+| Find out why the cart won’t boot, check NAND health, or make a backup | [Diagnose and back up a cart](docs/diagnose-and-back-up.md) |
+| Recover a white-screening or bricked cart, with or without a backup | [Recover a cart that won’t boot](docs/recover-a-bricked-cart.md) |
+| Fix safe mode for DSi, replace a safe-mode ROM, or undo a bypass | [Patch, replace, or bypass safe mode](docs/safe-mode.md) |
+| Update stock uDisk, install XuluMenu, or rebuild the filesystem | [Update, format, and set up a cart](docs/update-and-format.md) |
 
 ## Usage
 
