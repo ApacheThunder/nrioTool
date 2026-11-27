@@ -12,21 +12,18 @@ static bool informative(const uint8_t data[SAMPLE_BYTES])
     return false;
 }
 
-bool nrio_probe_4gib(const struct nrio_capacity_probe_io *io, unsigned page_bytes,
-                     struct nrio_capacity_report *report)
+static bool probe(const struct nrio_capacity_probe_io *io, unsigned page_bytes,
+                  uint32_t delta, const uint32_t *offsets, unsigned samples,
+                  struct nrio_capacity_report *report)
 {
-    static const uint32_t offsets[] = {
-        0, 0x8000, 0x20000, 0x40000, 0x80000, 0x100000, 0x1000000,
-        0x10000000, 0x40000000, 0x7ff00000, 0x7fff0000, 0x7fffc000,
-    };
     if (!io || !io->read || !report ||
         (page_bytes != 2048 && page_bytes != 4096 && page_bytes != 8192 && page_bytes != 16384))
         return false;
     *report = (struct nrio_capacity_report){0};
-    uint8_t first_distinct[SAMPLE_BYTES];
-    bool have_distinct = false;
-    for (unsigned i = 0; i < sizeof(offsets) / sizeof(*offsets); ++i) {
-        const uint32_t low = offsets[i], high = low | UINT32_C(0x80000000);
+    uint8_t first_distinct[SAMPLE_BYTES], first_matched[SAMPLE_BYTES];
+    bool have_distinct = false, have_matched = false;
+    for (unsigned i = 0; i < samples; ++i) {
+        const uint32_t low = offsets[i], high = low + delta;
         uint8_t a[SAMPLE_BYTES], b[SAMPLE_BYTES], repeat[SAMPLE_BYTES];
         enum nrio_probe_observation result;
         if (!io->read(io->context, low / page_bytes, a) ||
@@ -54,9 +51,40 @@ bool nrio_probe_4gib(const struct nrio_capacity_probe_io *io, unsigned page_byte
                 report->varying_distinct_upper = true;
             }
         }
+        if (result == NRIO_PROBE_IDENTICAL) {
+            if (!have_matched) {
+                memcpy(first_matched, b, SAMPLE_BYTES);
+                have_matched = true;
+            } else if (memcmp(first_matched, b, SAMPLE_BYTES)) {
+                report->varying_matched_upper = true;
+            }
+        }
         ++report->count[result];
         ++report->sampled;
         if (io->result) io->result(io->context, low, high, result);
     }
     return true;
+}
+
+
+bool nrio_probe_4gib(const struct nrio_capacity_probe_io *io, unsigned page_bytes,
+                    struct nrio_capacity_report *report)
+{
+    static const uint32_t offsets[] = {
+        0, 0x8000, 0x20000, 0x40000, 0x80000, 0x100000, 0x1000000,
+        0x10000000, 0x40000000, 0x7ff00000, 0x7fff0000, 0x7fffc000,
+    };
+    return probe(io, page_bytes, UINT32_C(0x80000000), offsets,
+                 sizeof(offsets) / sizeof(*offsets), report);
+}
+
+bool nrio_probe_alias(const struct nrio_capacity_probe_io *io, unsigned page_bytes,
+                     unsigned mib, struct nrio_capacity_report *report)
+{
+    static const uint32_t offsets[] = {
+        0, 0x8000, 0x20000, 0x40000, 0x80000, 0x100000, 0x1000000,
+    };
+    if (mib != 128 && mib != 256) return false;
+    return probe(io, page_bytes, (uint32_t)mib << 20, offsets,
+                 sizeof(offsets) / sizeof(*offsets), report);
 }

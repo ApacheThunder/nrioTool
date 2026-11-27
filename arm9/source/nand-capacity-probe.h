@@ -11,7 +11,7 @@ enum nrio_probe_observation {
 
 struct nrio_capacity_report {
     unsigned count[NRIO_PROBE_OBSERVATIONS], sampled;
-    bool varying_distinct_upper;
+    bool varying_distinct_upper, varying_matched_upper;
 };
 
 struct nrio_capacity_probe_io {
@@ -22,5 +22,7 @@ struct nrio_capacity_probe_io {
 
 bool nrio_probe_4gib(const struct nrio_capacity_probe_io *io, unsigned page_bytes,
                      struct nrio_capacity_report *report);
+bool nrio_probe_alias(const struct nrio_capacity_probe_io *io, unsigned page_bytes,
+                     unsigned mib, struct nrio_capacity_report *report);
 void nrio_capacity_probe_ui(const char *root);
 #endif

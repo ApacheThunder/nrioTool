@@ -82,6 +82,10 @@ A block-0 backup holds the first physical erase block and its spare records. It 
 3. To include the ROM, choose **Add ROM dump**. If the DS prompts you to reinsert the cart, use the same one. A failed or cancelled ROM read does not delete the earlier raw backup or report.
 
 The folder contains `CAPTURE.TXT` with the outcome of each step.
+If the early FireLine table sectors can be read twice, the capture includes
+`OS-MAP.BIN` and `DIR-MAP.BIN`. It also includes the first sectors at valid
+mapped destinations as `OS-HEAD.BIN` and `DIR-HEAD.BIN`. The report
+records which files were saved and which signatures matched.
 `block0-000` inside it is the usual restore backup. Keep its three files
 together. To make it selectable by **Restore block 0**, copy that whole
 folder under `nrioFiles`, with a free `block0-NNN` name.
@@ -136,4 +140,18 @@ compatibility guarantee, or a launcher.
 
 Press **Y** in Check Cart when the scan is available. It does not erase or program NAND. On independent storage it can save `NAND-HEALTH.TXT`. Marked blocks or repeat read errors help narrow down the issue. A clean read-only scan does not prove that a block will accept writes, and the scan does not remap anything.
 
-**SELECT** starts the experimental read-only 4 GiB address probe. It does not enable 4 GiB mounts or writes.
+**SELECT** opens the read-only address probe. Select the NAND's main page
+size, then press **A** for the 4 GiB probe or **X** to compare raw reads
+128 and 256 MiB apart. The alias check saves `NAND-ALIAS.TXT` on independent
+storage. Uniform, unstable, or failed upper reads are inconclusive. Matching
+structured reads suggest a possible alias, which can also occur when the chip
+is smaller than the tested address range. Neither option tests USB writes.
+
+## Identify and dump the early FireLine OS
+
+**Check Cart → Boot Tables** checks the older FireLine OS and directory
+maps at `0x80000` and `0x84000`. A match uses the archived `os.nds`
+fingerprint, the directory signature, and a valid OS block map.
+With independent storage available, **Dump FireLine OS** in the main
+menu saves the mapped image with its padding as `nrioFiles/fireline-os.nds`.
+This check does not enable legacy formatting or installation.

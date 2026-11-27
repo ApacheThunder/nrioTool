@@ -6,7 +6,7 @@
 #include "recovery_nand/raw_nand.h"
 #include "recovery_nand/recovery.h"
 
-struct probe_context { FILE *log; unsigned sample; };
+struct probe_context { FILE *log; unsigned sample; const char *title; };
 
 static const char *const outcomes[] = {
     "Matching structured data", "Different structured data", "Uniform upper data",
@@ -25,8 +25,8 @@ static void show_sample(void *opaque, uint32_t low, uint32_t high, enum nrio_pro
 {
     struct probe_context *ctx = opaque;
     consoleClear();
-    printf("4 GiB address probe\n\nPair %u\n%08lX / %08lX\n%s\n\nRead only.\n",
-           ++ctx->sample, (unsigned long)low, (unsigned long)high, outcomes[outcome]);
+    printf("%s\n\nPair %u\n%08lX / %08lX\n%s\n\nRead only.\n",
+           ctx->title, ++ctx->sample, (unsigned long)low, (unsigned long)high, outcomes[outcome]);
     if (ctx->log) fprintf(ctx->log, "%08lX / %08lX : %s\n",
                          (unsigned long)low, (unsigned long)high, outcomes[outcome]);
 }
@@ -53,33 +53,54 @@ void nrio_capacity_probe_ui(const char *root)
     }
     static const unsigned page_sizes[] = {2048, 4096, 8192, 16384};
     unsigned pick = 0;
+    bool alias = false;
     for (;;) {
         consoleClear();
         printf("4 GiB address probe\n\nID %02lX %02lX %02lX %02lX\n",
                (unsigned long)(id & 255), (unsigned long)((id >> 8) & 255),
                (unsigned long)((id >> 16) & 255), (unsigned long)(id >> 24));
-        puts("Use your chip's main page size.\nReads only, no capacity change.\n");
+        puts("Use your chip's main page size.\nX Test 128/256 MiB aliasing.\n");
         for (unsigned i = 0; i < 4; ++i)
             printf("%c %u KiB page\n", i == pick ? '>' : ' ', page_sizes[i] / 1024);
         putchar('\n');
         nrio_button_legend("Up/Down Pick  A Read", "B Back");
         unsigned keys = input();
         if (keys & KEY_B) return;
-        if (keys & KEY_A) break;
+        if (keys & (KEY_A | KEY_X)) { alias = !!(keys & KEY_X); break; }
         if (keys & KEY_UP) pick = (pick + 3) % 4;
         else if (keys & KEY_DOWN) pick = (pick + 1) % 4;
     }
 
-    struct probe_context ctx = {0};
+    struct probe_context ctx = {.title = alias ? "NAND alias check" : "4 GiB address probe"};
     if (root) {
         char path[64];
-        int n = snprintf(path, sizeof(path), "%s/NAND-4GIB.TXT", root);
+        int n = snprintf(path, sizeof(path), "%s/%s", root, alias ? "NAND-ALIAS.TXT" : "NAND-4GIB.TXT");
         if (n >= 0 && (size_t)n < sizeof(path)) ctx.log = fopen(path, "a");
     }
     if (ctx.log) fprintf(ctx.log, "\nNAND ID %08lX. Assumed main page %u bytes. Read only.\n",
                          (unsigned long)id, page_sizes[pick]);
     struct nrio_capacity_probe_io io = {&ctx, read_one, show_sample};
     struct nrio_capacity_report r;
+    if (alias) {
+        char results[2][32];
+        for (unsigned i = 0; i < 2; ++i) {
+            unsigned mib = i ? 256 : 128;
+            if (ctx.log) fprintf(ctx.log, "%u MiB address delta\n", mib);
+            nrio_probe_alias(&io, page_sizes[pick], mib, &r);
+            const char *verdict = r.varying_distinct_upper ? "distinct reads" :
+                !r.count[NRIO_PROBE_DISTINCT] && r.varying_matched_upper ?
+                "possible alias" : "inconclusive";
+            snprintf(results[i], sizeof(results[i]), "%u MiB: %s", mib, verdict);
+            if (ctx.log) fprintf(ctx.log, "%s (%u pairs)\n", results[i], r.sampled);
+        }
+        if (ctx.log) fclose(ctx.log);
+        consoleClear();
+        printf("NAND alias check\n\n%s\n%s\n\nRaw reads only. No write test.\n\n",
+               results[0], results[1]);
+        nrio_button_legend("A/B Back", NULL);
+        while (!(input() & (KEY_A | KEY_B))) {}
+        return;
+    }
     nrio_probe_4gib(&io, page_sizes[pick], &r);
 
     const char *summary = r.varying_distinct_upper ? "Upper addresses differ." :
