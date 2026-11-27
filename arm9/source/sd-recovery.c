@@ -10,6 +10,7 @@
 
 #include "region-recovery.h"
 #include "boot-report.h"
+#include "cart-probe.h"
 #include "block0-backup-check.h"
 #include "rom-dump-ui.h"
 #include "recovery_nand/raw_nand.h"
@@ -36,8 +37,7 @@ static uint32_t word(const uint8_t *p)
 
 static bool select_view(enum nrio_raw_mode mode, struct nrio_raw_info *info)
 {
-    nrio_recovery_shutdown();
-    return nrio_recovery_startup() && nrio_recovery_select_mode(mode) && nrio_recovery_get_info(info);
+    return nrio_open_cart_view(mode, info);
 }
 
 static bool open_backup(const char *root, char *directory, char *main_path, char *spare_path)
@@ -655,6 +655,7 @@ void nrioTool_sd_recovery(int action, const char *root)
     }
     enum nrio_raw_mode mode = (action == 1 || action == 3)
         ? NRIO_RAW_SD_BANNER_INSTALL : NRIO_RAW_SAFE_MODE_INSTALL;
+    if (action == 2) mode = NRIO_RAW_MAIN_READ;
     if (action == 4 || action == 12) mode = NRIO_RAW_SD_BLOCK0_RESTORE;
     if (action >= 6 && action <= 11) mode = NRIO_RAW_SD_REGION_INSTALL;
     if (!select_view(mode, &info)) {

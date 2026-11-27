@@ -10,6 +10,7 @@
 
 #include "boot-report.h"
 #include "boot-spare.h"
+#include "cart-probe.h"
 #include "bundle-assets.h"
 #include "button-legend.h"
 #include "nand-health.h"
@@ -226,9 +227,16 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
     line(files, "FAT and menu files");
     line(spare, "Boot spare check");
     line(survivors, "Surviving boot data");
+    uint32_t id;
+    const enum nrio_cart_probe_state probe = nrio_cart_probe_result(&id);
     if (!info) {
-        uint32_t id;
-        if (nand_read_probe_id(&id) && id && id != UINT32_MAX) {
+        if (probe == NRIO_CART_PROBE_RETRY_UNSTABLE) {
+            line(summary, "NAND ID read after setup.");
+            line(summary, "Page read failed or changed.");
+            line(nand, "Raw ID %08lX", (unsigned long)id);
+            line(nand, "Setup retry: unstable read.");
+            line(help, "Reseat the cart, then press R.");
+        } else if (probe == NRIO_CART_PROBE_UNSUPPORTED) {
             line(summary, "NAND ID read, setup failed.");
             line(summary, "Raw ID %08lX", (unsigned long)id);
             line(summary, "Geometry may be unsupported.");
@@ -244,6 +252,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
             line(summary, "This alone does not prove");
             line(summary, "the NAND is dead.");
             line(nand, "NAND ID unavailable.");
+            if (probe == NRIO_CART_PROBE_RETRY_NO_ID) line(nand, "Setup retry: no valid ID.");
             line(help, "Reseat the cart, then press R.");
             line(help, "If it still won't respond,");
             line(help, "check the Slot-1 contacts");
@@ -262,6 +271,8 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
     line(nand, "ID %08lX", (unsigned long)info->nand_id);
     line(nand, "%lu pages per erase block", (unsigned long)erase_pages);
     line(nand, "%lu physical sectors", (unsigned long)info->sectors);
+    line(nand, "%s", probe == NRIO_CART_PROBE_RETRY_READY ?
+         "Probe: read-only setup retry" : "Probe: direct NAND ID");
     enum early_state early = check_early(erase_pages);
     line(nand, "");
     line(nand, "%s", early == ERASED ? "Block 0 is all FF." : early == KNOWN_HEADER

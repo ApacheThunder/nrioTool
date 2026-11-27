@@ -71,6 +71,7 @@ struct nrio_raw_write_error {
 };
 
 bool nrio_recovery_startup(void);
+uint32_t nrio_recovery_last_probe_id(void);
 void nrio_recovery_shutdown(void);
 bool nrio_recovery_select_mode(enum nrio_raw_mode mode);
 bool nrio_recovery_get_info(struct nrio_raw_info *info);

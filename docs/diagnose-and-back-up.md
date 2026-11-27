@@ -19,6 +19,14 @@
 
 **NAND and early boot** reports whether the main ARM9 marker is supported, already patched, unknown, or unreadable. Neither this check nor the boot spare check stages a repair. Check Cart recognizes some archived DS Linker, DS Fire Link, Ultra FlashPass EX, and stock uDisk versions from two sectors of the mapped ROM. That identification alone does not authorize writes or add support for a new NAND geometry.
 
+If the direct NAND ID probe gets no usable reply, the read-only recovery
+path tries the existing cart setup sequence once without launching the
+cart ROM. Two reads of the first sector must agree before it uses that
+retry for diagnostics or backups. The report tells you whether the retry
+worked, returned no ID, or returned an ID but could not read reliably.
+This does not bypass any restore checks, and the retry still needs a
+test on physically bricked hardware.
+
 ## Check the boot spare records
 
 On the **Boot spare check** page, nrioTool reads each of the first six

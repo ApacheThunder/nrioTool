@@ -38,6 +38,11 @@ bool nrio_recovery_startup(void)
     return nand_probe(&geometry);
 }
 
+uint32_t nrio_recovery_last_probe_id(void)
+{
+    return geometry.id;
+}
+
 void nrio_recovery_shutdown(void)
 {
     geometry.sectors = 0;

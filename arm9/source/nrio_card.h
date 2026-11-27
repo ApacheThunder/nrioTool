@@ -2,13 +2,13 @@
 #define NRIO_CARD_H
 
 #include <stdbool.h>
-#include <nds/ndstypes.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-bool InitCartNandReadMode(u32 card_type);
+bool InitCartNandReadMode(uint32_t card_type);
 
 #ifdef __cplusplus
 }

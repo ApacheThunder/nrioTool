@@ -97,20 +97,23 @@ static bool wait_nand(void)
 
 bool nand_read_probe_id(u32 *id)
 {
+    u32 reply;
     REG_AUXSPICNTH = CARD_SPICNTH_ENABLE | CARD_SPICNTH_IRQ;
     if (!wait_idle()) {
         return false;
     }
     frame(0xd1, 0x61, 0x90, 0);
-    if (!command_word(0xa7180000, id)) {
+    if (!command_word(0xa7180000, &reply)) {
         return false;
     }
     frame(0xd1, 0x51, 0, 0);
-    if (!command_word(0xa7180000, id)) {
+    if (!command_word(0xa7180000, &reply)) {
         return false;
     }
     frame(0xd0, 0, 0, 0);
-    return command_word(0xa7180000, id);
+    if (!command_word(0xa7180000, &reply)) return false;
+    *id = reply;
+    return true;
 }
 
 static bool page_address(u32 page, bool spare)
@@ -226,6 +229,7 @@ bool nand_program_page(u32 page, const u8 *record)
 bool nand_probe(struct nand_geometry *geometry)
 {
     geometry->sectors = 0;
+    geometry->id = 0;
     if (!nand_read_probe_id(&geometry->id)) {
         return false;
     }
