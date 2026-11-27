@@ -5,14 +5,8 @@
 #include "ui.h"
 #include "font.h"
 
-#include "mainMenu.h"
-#include "mainMenuDebug.h"
-#include "advancedMenu.h"
-#include "advancedMenuDebug.h"
-#include "dldiMenu.h"
-#include "dldiMenuDebug.h"
-#include "utilityMenu.h"
-#include "utilityMenuDebug.h"
+#include "topScreen.h"
+#include "topScreenDebug.h"
 #include "botConsole.h"
 
 static PrintConsole tpConsole;
@@ -23,8 +17,6 @@ static int bg;
 static int bgSub;
 
 bool TopSelected = false;
-
-extern bool debugMode;
 
 void SelectTopConsole() { consoleSelect(&tpConsole); }
 void SelectBotConsole() { consoleSelect(&btConsole); }
@@ -47,38 +39,14 @@ void PrintToTop(const char* Message, int data, bool clearScreen) {
 	TopSelected = false;
 }
 
-void LoadTopScreenSplash() {	
-	dmaCopy(mainMenuBitmap, bgGetGfxPtr(bg), 256*256);
-	dmaCopy(mainMenuPal, BG_PALETTE, 256*2);
-	BG_PALETTE[255] = RGB15(31,31,31);
-}
-
-void LoadTopScreenDebugSplash() {	
-	dmaCopy(mainMenuDebugBitmap, bgGetGfxPtr(bg), 256*256);
-	dmaCopy(mainMenuDebugPal, BG_PALETTE, 256*2);
-	BG_PALETTE[255] = RGB15(31,31,31);
-}
-
-void LoadTopScreenDLDISplash() {
-	if (debugMode) {
-		dmaCopy(dldiMenuDebugBitmap, bgGetGfxPtr(bg), 256*256);
-		dmaCopy(dldiMenuDebugPal, BG_PALETTE, 256*2);
+void LoadTopScreen(bool showDebug) {
+	if (showDebug) {
+		dmaCopy(topScreenDebugBitmap, bgGetGfxPtr(bg), topScreenDebugBitmapLen);
+		dmaCopy(topScreenDebugPal, BG_PALETTE, topScreenDebugPalLen);
 	} else {
-		dmaCopy(dldiMenuBitmap, bgGetGfxPtr(bg), 256*256);
-		dmaCopy(dldiMenuPal, BG_PALETTE, 256*2);
+		dmaCopy(topScreenBitmap, bgGetGfxPtr(bg), topScreenBitmapLen);
+		dmaCopy(topScreenPal, BG_PALETTE, topScreenPalLen);
 	}
-	BG_PALETTE[255] = RGB15(31,31,31);
-}
-
-void LoadTopScreenUtilitySplash(bool showDebug) {
-	dmaCopy(showDebug ? utilityMenuDebugBitmap : utilityMenuBitmap, bgGetGfxPtr(bg), 256*256);
-	dmaCopy(showDebug ? utilityMenuDebugPal : utilityMenuPal, BG_PALETTE, 256*2);
-	BG_PALETTE[255] = RGB15(31,31,31);
-}
-
-void LoadTopScreenAdvancedSplash(bool showDebug) {
-	dmaCopy(showDebug ? advancedMenuDebugBitmap : advancedMenuBitmap, bgGetGfxPtr(bg), 256*256);
-	dmaCopy(showDebug ? advancedMenuDebugPal : advancedMenuPal, BG_PALETTE, 256*2);
 	BG_PALETTE[255] = RGB15(31,31,31);
 }
 
@@ -109,18 +77,16 @@ void BootSplashInit() {
 	consoleSetWindow(&tpConsole, 1, 5, 30, 19);
 	
 	// Load graphics after font or else you get palette conflicts. :P
-	dmaCopy(mainMenuBitmap, bgGetGfxPtr(bg), 256*256);
-	dmaCopy(mainMenuPal, BG_PALETTE, 256*2);
-	dmaCopy(botConsoleBitmap, bgGetGfxPtr(bgSub), 256*256);
-	dmaCopy(botConsolePal, BG_PALETTE_SUB, 256*2);
-	
-	BG_PALETTE[255] = RGB15(31,31,31);
+	LoadTopScreen(false);
+	dmaCopy(botConsoleBitmap, bgGetGfxPtr(bgSub), botConsoleBitmapLen);
+	dmaCopy(botConsolePal, BG_PALETTE_SUB, botConsolePalLen);
+
 	BG_PALETTE_SUB[255] = RGB15(31,31,31);
     // The bitmap and text share BG_PALETTE_SUB. Pick a text ink slot
     // that is unused by the bitmap so the highlight doesn't recolor it.
     const u8 *backdrop = reinterpret_cast<const u8 *>(botConsoleBitmap);
     bool used[256] = {};
-    for (unsigned i = 0; i < 256 * 256; ++i) used[backdrop[i]] = true;
+    for (unsigned i = 0; i < botConsoleBitmapLen; ++i) used[backdrop[i]] = true;
     for (unsigned bank = 0; bank < 15; ++bank) {
         unsigned ink = bank * 16 + 15;
         if (!used[ink]) {

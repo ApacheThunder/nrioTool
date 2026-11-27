@@ -786,8 +786,7 @@ static MenuAction PickAction(const char *title, const MenuItem (&items)[count], 
 			consoleClear();
 			const size_t footer = MENU_CONTROLS_ROW - MENU_CONSOLE_TOP;
 			if (2 + visibleCount * 2 > footer + 1) {
-				// Long menus use a uniform one-row list. Keep the footer
-				// inside the visible screen even with older splash art.
+				// Long menus use a uniform one-row list above the footer.
 				const size_t footerRow = 24 - BottomConsoleRow() - 4;
 				const size_t rows = footerRow - 3;
 				const size_t from = selected < rows ? 0 : selected - rows + 1;
@@ -877,7 +876,7 @@ static void RunUdiskSetupMenu(const char *backupRoot) {
 }
 
 static void RunAdvancedMenu(const char *startupRecoveryRoot) {
-	LoadTopScreenAdvancedSplash(WarningPosted || debugMode);
+	LoadTopScreen(WarningPosted || debugMode);
 	const MenuItem items[] = {
 		{MenuAction::InstallBanner, "Install custom banner"},
 		{MenuAction::PatchSafeMode, "Patch safe mode for DSi"},
@@ -910,7 +909,7 @@ static void RunAdvancedMenu(const char *startupRecoveryRoot) {
 static void RunDldiMenu();
 
 static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
-	LoadTopScreenUtilitySplash(WarningPosted || debugMode);
+	LoadTopScreen(WarningPosted || debugMode);
 	const bool recoveryOnly = startupRecoveryRoot != nullptr;
 	while (!ErrorState) {
 		const bool recoveryAvailable = recoveryOnly || RecoveryStorageRoot() != nullptr;
@@ -929,21 +928,21 @@ static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
 		switch (PickAction("Utility Menu", items, recoveryOnly)) {
 			case MenuAction::Advanced:
 				RunAdvancedMenu(startupRecoveryRoot);
-				LoadTopScreenUtilitySplash(WarningPosted || debugMode);
+				LoadTopScreen(WarningPosted || debugMode);
 				break;
 			case MenuAction::Dldi:
 				RunDldiMenu();
-				if (!ErrorState) LoadTopScreenUtilitySplash(WarningPosted || debugMode);
+				if (!ErrorState) LoadTopScreen(WarningPosted || debugMode);
 				break;
 			case MenuAction::CheckCart:
 				nrioTool_sd_recovery(5, startupRecoveryRoot ? startupRecoveryRoot : RecoveryStorageRoot());
 				break;
 			case MenuAction::ExportRecovery:
 				if (const char *root = recoveryOnly ? startupRecoveryRoot : RecoveryStorageRoot()) {
-					LoadTopScreenUtilitySplash(true);
+					LoadTopScreen(true);
 					SelectBotConsole();
 					nrioTool_export_recovery(root);
-					LoadTopScreenUtilitySplash(WarningPosted || debugMode);
+					LoadTopScreen(WarningPosted || debugMode);
 				}
 				break;
             case MenuAction::CompareC1:
@@ -994,7 +993,7 @@ static bool PrepareDldiAction() {
 }
 
 static void RunDldiMenu() {
-	LoadTopScreenDLDISplash();
+	LoadTopScreen(WarningPosted || debugMode);
 	const MenuItem items[] = {
 		{MenuAction::BootCart, "Boot cart menu"},
 		{MenuAction::DumpFatSector, "Dump FAT sector 0"},
@@ -1102,7 +1101,7 @@ int main(int argc, char **argv) {
 	toncset((void*)0x02000000, 0, 0x800);
 	const u32 cardStatus = CardInit();
 	if (cardStatus) {
-		LoadTopScreenDebugSplash();
+		LoadTopScreen(true);
 		if (cardStatus == CARD_INIT_HEADER_CRC) {
 			const auto *header = reinterpret_cast<const sNDSHeaderExt *>(cartHeader);
 			PrintToTop("Slot-1 header CRC error (16)\n", -1, true);
@@ -1123,7 +1122,7 @@ int main(int argc, char **argv) {
 	}
 	RefreshSrlLayout();
 	if (!rawNandAvailable) {
-		if (!WarningPosted) LoadTopScreenDebugSplash();
+		if (!WarningPosted) LoadTopScreen(true);
 		PrintToTop("Could not probe Slot-1 NAND.\n", -1, !WarningPosted);
 		WarningPosted = true;
 	}
@@ -1146,14 +1145,14 @@ int main(int argc, char **argv) {
             case MenuAction::FileBrowser:
                 nrio_file_browser(wasDSi && sdMounted, !wasDSi && fatMounted && GetSlot2Storage(),
                                   !wasDSi && fatMounted && !GetSlot2Storage());
-                if (WarningPosted) LoadTopScreenDebugSplash();
-                else LoadTopScreenSplash();
+                if (WarningPosted) LoadTopScreen(true);
+                else LoadTopScreen(false);
                 break;
 			case MenuAction::Utility:
 				RunUtilityMenu();
 				if (!ErrorState) RefreshSrlLayout();
-				if (WarningPosted) LoadTopScreenDebugSplash();
-				else LoadTopScreenSplash();
+				if (WarningPosted) LoadTopScreen(true);
+				else LoadTopScreen(false);
 				break;
 			case MenuAction::DumpMain: DoNandDump("stage1.bin", STAGE1OFFSET, STAGE1SECTORCOUNT); break;
             case MenuAction::DumpCartRom:
