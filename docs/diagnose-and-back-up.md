@@ -27,6 +27,28 @@ worked, returned no ID, or returned an ID but could not read reliably.
 This does not bypass any restore checks, and the retry still needs a
 test on physically bricked hardware.
 
+## Compare the final C1 command
+
+Use **Utility Menu → Compare C1 NAND reads** on a working cart from DSi
+SD or separate writable Slot-2 storage. Keep the same cart in all three
+passes. On DS, reinsert it when asked. A recognized DSGB ROM supplies its
+actual setup word. This test does not guess a word for an unreadable ROM.
+
+Choose a known-good block-0 backup from that same cart if you have one.
+The test checks the backup's CRCs, geometry and anchors before comparing
+sampled pages. The test runs full init, resets and omits the last C1, then
+resets and repeats full init. It samples six main and spare pages twice
+per pass and records NAND ID, read stability, CRCs, and exact comparisons
+in `nrioFiles/C1-READ-TEST.TXT`. If its full baseline does not verify, it
+will not run the omitted-command pass. Without a separate reference, a
+stable full baseline is only a control, not proof the bytes are correct.
+If normal setup cannot be confirmed afterward, nrioTool exits rather
+than allowing another operation in an uncertain state.
+
+This tests Apache Thunder's observation that skipping the final C1 may
+break reads even if the NAND ID still comes back. It does not program or
+erase NAND or test whether writes would be affected.
+
 ## Check the boot spare records
 
 On the **Boot spare check** page, nrioTool reads each of the first six

@@ -11,6 +11,7 @@
 
 #include "region-recovery.h"
 #include "boot-report.h"
+#include "c1-diagnostics.h"
 #include "cart-probe.h"
 #include "block0-backup-check.h"
 #include "rom-dump-ui.h"
@@ -536,6 +537,39 @@ static void check_cart(const char *root)
     }
 done:
     nrio_recovery_shutdown();
+}
+
+struct reference_state { const char *root; int index; uint32_t id; bool checked, valid; };
+
+static bool compare_reference(void *context, const struct nrio_raw_info *info, unsigned page,
+                              const uint8_t *main, const uint8_t *spare)
+{
+    struct reference_state *state = context;
+    if (!state->checked) {
+        uint32_t length;
+        uint8_t anchors[2][SECTOR];
+        state->checked = true;
+        state->id = info->nand_id;
+        state->valid = load_backup_image(state->root, state->index, info, &length, anchors) == BACKUP_VALID;
+    }
+    if (!state->valid || state->id != info->nand_id || page >= nrio_recovery_pages_per_block()) return false;
+    const uint8_t *saved = restore_image + page * (PAGE + SPARE);
+    return !memcmp(saved, main, PAGE) && !memcmp(saved + PAGE, spare, SPARE);
+}
+
+bool nrioTool_c1_read_test(const char *root)
+{
+    struct reference_state state = {.root = root, .index = -1};
+    consoleClear();
+    puts("Compare NAND reads with and\nwithout the last C1 command.\nUse a working N-Card.\n\nA Choose known-good backup\nX Run without a backup\nB Back");
+    unsigned key;
+    do { swiWaitForVBlank(); scanKeys(); key = keysDown(); } while (!(key & (KEY_A | KEY_B | KEY_X)));
+    if (key & KEY_B) return true;
+    if (key & KEY_A) {
+        state.index = choose_backup(root, "Known-good backup");
+        if (state.index < 0) return true;
+    }
+    return nrio_c1_diagnostics(root, state.index >= 0 ? compare_reference : NULL, &state);
 }
 
 static bool new_capture_directory(const char *root, char directory[40])

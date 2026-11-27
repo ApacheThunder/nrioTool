@@ -720,6 +720,7 @@ static void DoNandDump(const char *name, u32 address, u32 directSectors = 0, boo
 
 extern "C" void nrioTool_sd_recovery(int action, const char *root);
 extern "C" void nrioTool_export_recovery(const char *root);
+extern "C" bool nrioTool_c1_read_test(const char *root);
 #include "udisk-setup.h"
 #include "format-origin.h"
 #include "sector-zero.h"
@@ -755,7 +756,7 @@ enum class MenuAction {
 	Utility, Dldi, FileBrowser,
 	DumpMain, DumpStage2, DumpUdisk, DumpBanner, DumpCartRom, TestDump,
 	BootCart, BootGm9, Usb,
-	CheckCart, ExportRecovery, SaveBlock0, Advanced, BuildUpdate,
+	CheckCart, ExportRecovery, CompareC1, SaveBlock0, Advanced, BuildUpdate,
 	PatchSafeMode, PatchMainMarker, BypassSafeMode, InstallBanner, RestoreArm7, RestoreBlock0, ReplaceSafeMode, RepairUdisk, UdiskSetup, QuickFormat, FullFormat,
 	InstallUdisk, InstallCustomUdisk, InstallXulu, SetupStockMenu, CopyXMenu, RemoveUpdater,
 	DumpFatSector, RestoreFatSector, DumpFatImage, FormatHelp,
@@ -917,6 +918,7 @@ static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
 			{MenuAction::Dldi, "DLDI Menu", dsiToolsAvailable},
 			{MenuAction::CheckCart, "Check Cart"},
 			{MenuAction::ExportRecovery, "Export recovery bundle", recoveryAvailable},
+			{MenuAction::CompareC1, "Compare C1 NAND reads", recoveryAvailable},
 			{MenuAction::BootCart, "Boot Cart", dsiToolsAvailable},
 			{MenuAction::BootGm9, "Boot GodMode9Nrio", dsiToolsAvailable},
 			{MenuAction::BuildUpdate, "Build Update File", !recoveryOnly},
@@ -937,6 +939,10 @@ static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
             case MenuAction::ExportRecovery:
                 if (const char *root = recoveryOnly ? startupRecoveryRoot : RecoveryStorageRoot())
                     nrioTool_export_recovery(root);
+                break;
+            case MenuAction::CompareC1:
+                if (const char *root = recoveryOnly ? startupRecoveryRoot : RecoveryStorageRoot())
+                    if (!nrioTool_c1_read_test(root)) ErrorState = true;
                 break;
 			case MenuAction::BootCart: SetSCFG(); DoCartBoot(); break;
 			case MenuAction::BootGm9: SetSCFG(); DoGM9iBoot(); break;

@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 bool InitCartNandReadMode(uint32_t card_type);
+bool nrio_cart_setup_diagnostic(uint32_t card_type, bool omit_final);
 
 #ifdef __cplusplus
 }

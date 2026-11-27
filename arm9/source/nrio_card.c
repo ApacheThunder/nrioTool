@@ -36,9 +36,8 @@ static bool send_setup_command(u8 command, u32 address, u32 flags)
     return false;
 }
 
-bool InitCartNandReadMode(u32 card_type)
+static bool setup_card(u32 card_type, bool omit_final)
 {
-    if (!card_type || card_type == UINT32_MAX) card_type = 0x10830000;
 
     const u32 probe_flags = CARD_nRESET | CARD_BLK_SIZE(7) | CARD_SEC_CMD |
                             BIT(20) | BIT(19) | BIT(14) | BIT(13);
@@ -47,5 +46,18 @@ bool InitCartNandReadMode(u32 card_type)
     return send_setup_command(0x66, 0, probe_flags) &&
            send_setup_command(0xc1, 0x0d210000, mode_flags) &&
            send_setup_command(0xc1, 0x0fb00000, mode_flags) &&
-           send_setup_command(0xc1, card_type, mode_flags);
+           (omit_final || send_setup_command(0xc1, card_type, mode_flags));
+}
+
+
+bool InitCartNandReadMode(u32 card_type)
+{
+    if (!card_type || card_type == UINT32_MAX) card_type = 0x10830000;
+    return setup_card(card_type, false);
+}
+
+bool nrio_cart_setup_diagnostic(u32 card_type, bool omit_final)
+{
+    return (card_type == 0x10830000 || card_type == 0x10430000) &&
+           setup_card(card_type, omit_final);
 }
