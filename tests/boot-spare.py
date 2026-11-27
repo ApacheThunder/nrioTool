@@ -17,6 +17,22 @@ ARM7_PAGES = (1, 4, 5)
 class Report(c.Structure):
     _fields_ = [("page", c.c_int * 6), ("arm7_copies", c.c_int), ("table_overlap", c.c_int)]
 
+class Arm7Plan(c.Structure):
+    _fields_ = [("result", c.c_int), ("match_mask", c.c_uint), ("page", c.c_uint),
+                ("handoff", c.c_uint32)]
+
+UNKNOWN, INCOMPLETE, CONFLICT, INTACT, CANDIDATE = range(5)
+
+
+def candidate(lib, capture, *, evidence=7, same_cart=True, rom=None):
+    copies = b"".join(capture[page * RECORD:(page + 1) * RECORD] for page in ARM7_PAGES)
+    if rom is None:
+        rom = copies[:RECORD]
+    plan = Arm7Plan()
+    lib.nrio_preview_arm7(rom, copies, evidence, same_cart, c.byref(plan))
+    return plan.result, plan.match_mask, plan.page, plan.handoff
+
+
 READER = c.CFUNCTYPE(c.c_bool, c.c_void_p, c.c_uint, c.POINTER(c.c_uint8))
 
 
@@ -90,6 +106,9 @@ with tempfile.TemporaryDirectory() as directory:
     lib = c.CDLL(str(library))
     lib.nrio_check_boot_spare.argtypes = [READER, c.c_void_p, c.POINTER(Report)]
     lib.nrio_check_boot_spare.restype = None
+    lib.nrio_preview_arm7.argtypes = [c.c_char_p, c.c_char_p, c.c_uint, c.c_bool, c.POINTER(Arm7Plan)]
+    lib.nrio_preview_arm7.restype = None
+    assert candidate(lib, b"\xff" * 384)[0] == UNKNOWN
 
     assert check(lib, b"\xff" * 384) == ([ERASED] * 6, NOT_COMPARED, NOT_COMPARED)
     assert check(lib, b"\0" * 384) == ([OTHER] * 6, AGREE, AGREE)
@@ -107,6 +126,17 @@ with tempfile.TemporaryDirectory() as directory:
         expected = [page0, arm7, TABLE, TABLE, arm7, arm7]
         assert check(lib, capture) == (expected, AGREE, AGREE)
         mutations(lib, capture, expected)
+        rom = capture[RECORD:2 * RECORD]
+        handoff = 0x1918027e if arm7 == ARM7_19 else 0x1118027e
+        assert candidate(lib, capture) == (INTACT, 7, 0, handoff)
+        assert candidate(lib, capture, evidence=3)[0] == INCOMPLETE
+        assert candidate(lib, capture, same_cart=False)[0] == INCOMPLETE
+        for i, page in enumerate(ARM7_PAGES):
+            damaged = bytearray(capture)
+            damaged[page * RECORD] ^= 1
+            assert candidate(lib, bytes(damaged), rom=rom) == (CANDIDATE, 7 ^ (1 << i), page, handoff)
+        damaged[RECORD + 1] ^= 1
+        assert candidate(lib, bytes(damaged), rom=rom)[0] == CONFLICT
         variants[arm7] = capture
         count += 1
     if len(variants) == 2:
@@ -115,4 +145,5 @@ with tempfile.TemporaryDirectory() as directory:
         states, arm7, table = check(lib, mixed)
         assert states[1] == states[4] == ARM7_19 and states[5] == ARM7_11
         assert (arm7, table) == (DIFFER, AGREE)
+        assert candidate(lib, bytes(mixed))[0] == CONFLICT
     print(f"Boot spare tests passed ({count} real captures plus synthetic controls)")

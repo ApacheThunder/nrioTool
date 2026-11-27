@@ -11,6 +11,7 @@
 
 #include "region-recovery.h"
 #include "boot-report.h"
+#include "boot-spare.h"
 #include "c1-diagnostics.h"
 #include "cart-probe.h"
 #include "block0-backup-check.h"
@@ -584,7 +585,7 @@ static bool new_capture_directory(const char *root, char directory[40])
 }
 
 static bool capture_spare_comparison(const char *directory, struct nrio_rom_spare_compare *comparison,
-                                     unsigned *arm7_matches)
+                                     struct nrio_arm7_plan *plan)
 {
     /* Check the manifest/anchors again after the ROM session. This detects
        many swaps but is not a unique hardware identity check. */
@@ -613,12 +614,21 @@ static bool capture_spare_comparison(const char *directory, struct nrio_rom_spar
                           !fseek(file, arm7_offset, SEEK_SET) &&
                           fread(arm7, 1, sizeof(arm7), file) == sizeof(arm7);
     if (fclose(file) || !ok) return false;
-    *arm7_matches = arm7_read ? 0 : 8;
+    *plan = (struct nrio_arm7_plan){.result = NRIO_ARM7_PREVIEW_INCOMPLETE};
     if (arm7_read) {
         const unsigned pages[] = {1, 4, 5};
-        for (unsigned i = 0; i < sizeof(pages) / sizeof(pages[0]); ++i)
-            if (!memcmp(arm7, restore_image + pages[i] * (PAGE + SPARE) + PAGE, SPARE))
-                *arm7_matches |= 1u << i;
+        uint8_t copies[3][SPARE], retry[SPARE];
+        unsigned stable = 0;
+        for (unsigned i = 0; i < sizeof(pages) / sizeof(pages[0]); ++i) {
+            const unsigned pg = pages[i];
+            if (nand_load_page(pg, true) && nand_read_spare(copies[i]) &&
+                nand_load_page(pg, true) && nand_read_spare(retry) &&
+                !memcmp(copies[i], retry, SPARE) &&
+                !memcmp(copies[i], restore_image + pg * (PAGE + SPARE) + PAGE, SPARE))
+                stable |= 1u << i;
+        }
+        nrio_preview_arm7(arm7, copies[0], stable,
+                          !memcmp(header, early + 0x400, SECTOR), plan);
     }
     *comparison = nrio_compare_cart_spare(header, live, early);
     return true;
@@ -652,9 +662,9 @@ void nrioTool_export_recovery(const char *root)
     const bool tried_rom = !(keysDown() & KEY_B);
     const bool saved_rom = tried_rom && nrio_dump_cart_rom(directory, false, &rom);
     struct nrio_rom_spare_compare comparison;
-    unsigned arm7_matches;
+    struct nrio_arm7_plan arm7;
     const bool compared = saved_block && saved_rom &&
-                          capture_spare_comparison(directory, &comparison, &arm7_matches);
+                          capture_spare_comparison(directory, &comparison, &arm7);
     nrio_recovery_shutdown();
 
     snprintf(path, sizeof(path), "%s/CAPTURE.TXT", directory);
@@ -690,10 +700,17 @@ void nrioTool_export_recovery(const char *root)
                 fprintf(log, "Consecutive repeats of the ROM record at 0x80-byte intervals: %u.\n",
                         comparison.following_repeats);
                 fprintf(log, "ROM 0x800-0xBFF masked spare copies: %u of 8.\n", comparison.masked_copies);
-                if (arm7_matches != 8)
-                    fprintf(log, "ROM ARM7 matches saved spare: page 1 %s, page 4 %s, page 5 %s.\n",
-                            arm7_matches & 1 ? "yes" : "no", arm7_matches & 2 ? "yes" : "no",
-                            arm7_matches & 4 ? "yes" : "no");
+                if (arm7.handoff)
+                    fprintf(log, "ROM ARM7 %08lX matches spare: page 1 %s, page 4 %s, page 5 %s.\n",
+                            (unsigned long)arm7.handoff, arm7.match_mask & 1 ? "yes" : "no",
+                            arm7.match_mask & 2 ? "yes" : "no", arm7.match_mask & 4 ? "yes" : "no");
+                if (arm7.result == NRIO_ARM7_PREVIEW_CANDIDATE)
+                    fprintf(log, "ARM7 preview: page %u is a repair candidate. No write staged.\n", arm7.page);
+                else if (arm7.result == NRIO_ARM7_PREVIEW_INTACT)
+                    fputs("ARM7 preview: all three copies intact.\n", log);
+                else if (arm7.result == NRIO_ARM7_PREVIEW_CONFLICT)
+                    fputs("ARM7 preview: copies disagree; no candidate.\n", log);
+                else fputs("ARM7 preview unavailable: header, variant or reads not verified.\n", log);
                 fprintf(log, "ROM 0xC00-0xFFF vs. main NAND 0x000-0x3FF: %u of 1024 bytes match.\n",
                         comparison.main_matches);
             }
@@ -707,6 +724,8 @@ void nrioTool_export_recovery(const char *root)
            saved_report ? "saved" : "not saved", saved_rom ? "saved" : tried_rom ? "not saved" : "skipped");
     if (!saved_log) puts("Could not save CAPTURE.TXT.");
     if (compared) printf("ROM/spare match: %u/64 bytes.\n", comparison.matches);
+    if (compared && arm7.result == NRIO_ARM7_PREVIEW_CANDIDATE)
+        printf("ARM7 candidate: page %u.\n", arm7.page);
 done:
     puts("\nA or B Back");
     do { swiWaitForVBlank(); scanKeys(); } while (!(keysDown() & (KEY_A | KEY_B)));

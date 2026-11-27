@@ -17,7 +17,9 @@
 | Read errors, unstable pages, or FAT won’t mount | Copy any accessible files, then run a [read-only health scan](#check-nand-health). Don’t format a cart whose files you still want to recover. |
 | Early boot or block 0 looks erased or corrupt | See [Recover a cart that won’t boot](recover-a-bricked-cart.md). |
 
-**NAND and early boot** reports whether the main ARM9 marker is supported, already patched, unknown, or unreadable. Neither this check nor the boot spare check stages a repair. Check Cart recognizes some archived DS Linker, DS Fire Link, Ultra FlashPass EX, and stock uDisk versions from two sectors of the mapped ROM. That identification alone does not authorize writes or add support for a new NAND geometry.
+**NAND and early boot** separates the last logical ROM initialization from
+the raw NAND result. The last ROM result is historical. In the L-start
+recovery path it may not have been attempted. Check Cart also reports whether the main ARM9 marker is supported, already patched, unknown, or unreadable. Neither this check nor the boot spare check stages a repair. Check Cart recognizes some archived DS Linker, DS Fire Link, Ultra FlashPass EX, and stock uDisk versions from two sectors of the mapped ROM. That identification alone does not authorize writes or add support for a new NAND geometry.
 
 If the direct NAND ID probe gets no usable reply, the read-only recovery
 path tries the existing cart setup sequence once without launching the
@@ -109,6 +111,16 @@ physical-cart testing.
 
 For a recognized main header, **NAND and early boot** shows the ASIC
 setup word. It is not used to infer the save type or erase geometry.
+
+### Preview ARM7 spare recovery
+
+A complete bundle checks the logical ROM's 64-byte ARM7 against packed
+spare pages 1, 4, and 5. The read-only preview can name one candidate
+page if the ROM header matches the raw header, all three spare reads
+are stable and agree with the saved capture, and two copies match a
+known ARM7 variant byte for byte. An alternate known variant is a
+conflict, not an instruction to overwrite it. A preview never stages a
+write or touches spare page 0.
 
 ## Check NAND health
 

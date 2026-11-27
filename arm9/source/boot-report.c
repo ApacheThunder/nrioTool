@@ -24,7 +24,7 @@
 enum { PAGE_COUNT = 7, REPORT_LINES = 20, VISIBLE_LINES = 12, LINE_BYTES = 32, SECTOR = 512 };
 struct report_page { char line[REPORT_LINES][LINE_BYTES]; unsigned count; };
 enum menu_file { NOT_CHECKED, MISSING, VALID_HEADER, UNKNOWN_HEADER, READ_ERROR };
-enum early_state { NO_READ, ERASED, KNOWN_HEADER, UNKNOWN_MAIN };
+enum early_state { NO_READ, UNSTABLE_MAIN, ERASED, KNOWN_HEADER, UNKNOWN_MAIN };
 enum fat_state { PROBE_LOST, MISSING_MAP, MOUNT_FAILED, MOUNTED };
 
 static const char *fat_failure(enum fat_state state, const struct nrio_fat_check *check)
@@ -45,6 +45,22 @@ static void line(struct report_page *p, const char *fmt, ...)
     va_end(args);
 }
 
+static bool rom_probe_known;
+static uint32_t last_rom_status;
+
+void nrio_note_rom_probe(uint32_t status)
+{
+    rom_probe_known = true;
+    last_rom_status = status;
+}
+
+static void add_last_rom_probe(struct report_page *page)
+{
+    if (!rom_probe_known) line(page, "Last ROM init: not attempted");
+    else if (last_rom_status) line(page, "Last ROM init failed (%02lX)", (unsigned long)last_rom_status);
+    else line(page, "Last ROM init: OK");
+}
+
 static bool blank_ff(const uint8_t *p, size_t count)
 {
     for (size_t i = 0; i < count; ++i) if (p[i] != 0xff) return false;
@@ -53,8 +69,10 @@ static bool blank_ff(const uint8_t *p, size_t count)
 
 static enum early_state check_early(unsigned pages, uint32_t *card_type)
 {
-    uint8_t main[PAGE_SIZE], spare[SPARE_SIZE];
-    if (!nrio_recovery_read(0, PAGE_SIZE / SECTOR, main)) return NO_READ;
+    uint8_t main[PAGE_SIZE], retry[PAGE_SIZE], spare[SPARE_SIZE];
+    if (!nrio_recovery_read(0, PAGE_SIZE / SECTOR, main) ||
+        !nrio_recovery_read(0, PAGE_SIZE / SECTOR, retry)) return NO_READ;
+    if (memcmp(main, retry, sizeof(main))) return UNSTABLE_MAIN;
     if (!memcmp(main + 0x400, "DSGB", 4) && !memcmp(main + 0x40c, "DSGB", 4)) {
         *card_type = main[0x408] | (uint32_t)main[0x409] << 8 |
                      (uint32_t)main[0x40a] << 16 | (uint32_t)main[0x40b] << 24;
@@ -226,6 +244,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
     line(summary, "Summary");
     line(summary, "");
     line(nand, "NAND and early boot");
+    add_last_rom_probe(nand);
     line(boot, "Boot tables");
     line(files, "FAT and menu files");
     line(spare, "Boot spare check");
@@ -281,7 +300,8 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
     line(nand, "");
     line(nand, "%s", early == ERASED ? "Block 0 is all FF." : early == KNOWN_HEADER
                     ? "DSGB boot header found." : early == NO_READ
-                    ? "Early NAND read failed." : "Unknown early main data.");
+                    ? "Early NAND read failed." : early == UNSTABLE_MAIN
+                    ? "Main NAND changed on retry." : "Unknown early main data.");
     if (early == ERASED) line(nand, "Main and spare both erased.");
     add_boot_spare(spare);
 
@@ -424,15 +444,26 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
         line(summary, "NAND responds. Block 0 erased.");
         line(summary, "Restore a verified block-0");
         line(summary, "backup if you have one.");
-    } else if (early == NO_READ || first.kind == NRIO_BOOT_READ_ERROR) {
-        line(summary, "Early boot data read failed.");
+    } else if (early == UNSTABLE_MAIN) {
+        line(summary, "NAND ID OK, reads disagree.");
+        line(summary, "Save a report before repair.");
+    } else if (early == NO_READ) {
+        line(summary, "NAND ID OK, main read failed.");
         line(summary, "Retry or save read-only dumps.");
+    } else if (early == UNKNOWN_MAIN) {
+        line(summary, "Main data or layout unknown.");
+        line(summary, "See NAND and early boot.");
+    } else if (first.kind == NRIO_BOOT_READ_ERROR) {
+        line(summary, first.address ? "Mapped boot data read failed." : "Primary table read failed.");
+        line(summary, "See Boot tables for details.");
     } else if (game_marker) {
         line(summary, "Single-game layout marker.");
         line(summary, "Firmware route unverified.");
     } else if (first.kind == NRIO_BOOT_ERASED || first.kind == NRIO_BOOT_SKIPPED ||
                first.kind == NRIO_BOOT_UNKNOWN) {
-        line(summary, "Primary boot route not found.");
+        line(summary, "Main NAND header found.");
+        line(summary, first.kind == NRIO_BOOT_ERASED ? "Primary table is erased." :
+                       first.kind == NRIO_BOOT_SKIPPED ? "Primary table marked QAFE." : "Primary route unrecognized.");
         line(summary, "See Boot tables for details.");
     } else if (first.kind == NRIO_BOOT_DIRECT_DS) {
         line(summary, "Direct boot DS ROM found.");
@@ -463,7 +494,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
         if (root) line(help, "X checks a saved backup.");
         line(help, "See Surviving boot data.");
         line(help, "Formatting won't fix boot.");
-    } else if (early == NO_READ || first.kind == NRIO_BOOT_READ_ERROR ||
+    } else if (early == NO_READ || early == UNSTABLE_MAIN || first.kind == NRIO_BOOT_READ_ERROR ||
                fat == PROBE_LOST || (fat == MISSING_MAP && map.read_errors)) {
         line(help, "Reseat cart, then R to retry.");
         line(help, "Y scans for NAND read errors.");

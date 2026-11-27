@@ -49,3 +49,34 @@ void nrio_check_boot_spare(nrio_spare_reader read_page, void *context,
         report->table_overlap = !memcmp(records[2], records[3] + 8, 0x38) ?
                                 NRIO_SPARE_AGREE : NRIO_SPARE_DIFFER;
 }
+
+void nrio_preview_arm7(const uint8_t rom[NRIO_BOOT_SPARE_BYTES],
+                       const uint8_t *spare_copies, unsigned stable_mask,
+                       bool same_cart, struct nrio_arm7_plan *plan)
+{
+    memset(plan, 0, sizeof(*plan));
+    if (!same_cart || stable_mask != 7) {
+        plan->result = NRIO_ARM7_PREVIEW_INCOMPLETE;
+        return;
+    }
+    const enum nrio_spare_record stock = identify(1, rom);
+    if (stock != NRIO_SPARE_ARM7_19 && stock != NRIO_SPARE_ARM7_11) return;
+    plan->handoff = stock == NRIO_SPARE_ARM7_19 ? 0x1918027e : 0x1118027e;
+    const unsigned pages[] = {1, 4, 5};
+    unsigned matches = 0;
+    bool conflicts = false;
+    for (unsigned i = 0; i < 3; ++i) {
+        const uint8_t *copy = spare_copies + i * NRIO_BOOT_SPARE_BYTES;
+        if (!memcmp(rom, copy, NRIO_BOOT_SPARE_BYTES)) {
+            plan->match_mask |= 1u << i;
+            ++matches;
+        } else {
+            const enum nrio_spare_record other = identify(pages[i], copy);
+            conflicts |= other == NRIO_SPARE_ARM7_19 || other == NRIO_SPARE_ARM7_11;
+            plan->page = pages[i];
+        }
+    }
+    if (matches == 3) plan->result = NRIO_ARM7_PREVIEW_INTACT;
+    else if (matches == 2 && !conflicts) plan->result = NRIO_ARM7_PREVIEW_CANDIDATE;
+    else plan->result = NRIO_ARM7_PREVIEW_CONFLICT;
+}

@@ -32,4 +32,21 @@ typedef bool (*nrio_spare_reader)(void *, unsigned, uint8_t [NRIO_BOOT_SPARE_BYT
 void nrio_check_boot_spare(nrio_spare_reader read_page, void *context,
                            struct nrio_boot_spare_report *report);
 
+enum nrio_arm7_preview {
+    NRIO_ARM7_PREVIEW_UNKNOWN,
+    NRIO_ARM7_PREVIEW_INCOMPLETE,
+    NRIO_ARM7_PREVIEW_CONFLICT,
+    NRIO_ARM7_PREVIEW_INTACT,
+    NRIO_ARM7_PREVIEW_CANDIDATE,
+};
+struct nrio_arm7_plan {
+    enum nrio_arm7_preview result;
+    unsigned match_mask;
+    unsigned page;
+    uint32_t handoff;
+};
+void nrio_preview_arm7(const uint8_t rom[NRIO_BOOT_SPARE_BYTES],
+                       const uint8_t *spare_copies, unsigned stable_mask,
+                       bool same_cart, struct nrio_arm7_plan *plan);
+
 #endif

@@ -26,6 +26,7 @@
 #include "button-legend.h"
 #include "gm9-bundle.h"
 extern "C" {
+#include "boot-report.h"
 #include "rom-dump-ui.h"
 }
 extern "C" const u8 usb_mount_bin[] __attribute__((weak));
@@ -173,6 +174,7 @@ u32 CardInit(bool Silent = true, bool SkipSlotReset = false) {
 		}
 	}
 	const u32 status = cardInit((sNDSHeaderExt*)cartHeader, SkipSlotReset);
+	nrio_note_rom_probe(status);
 	if (status) return status;
 	char gameCode[7] = {0};
 	tonccpy(gameTitle, cartHeader->ndshdr.gameTitle, 12);

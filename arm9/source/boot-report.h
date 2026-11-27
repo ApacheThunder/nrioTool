@@ -26,5 +26,6 @@ static inline bool nrio_report_primary_occupies_secondary(struct nrio_boot_rom r
     }
 }
 
+void nrio_note_rom_probe(uint32_t status);
 enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw_info *info, bool save_only);
 #endif
