@@ -11,6 +11,8 @@
 #include "region-recovery.h"
 #include "boot-report.h"
 #include "block0-backup-check.h"
+#include "rom-dump-ui.h"
+#include "recovery_nand/raw_nand.h"
 
 enum { SECTOR = 512, PAGE = 2048, SPARE = 64, MAP_BLOCK = 0x4000, BACKUP_LIMIT = 1000 };
 static const char backup_tag[8] = "NRIOB01";
@@ -509,7 +511,7 @@ static void check_cart(const char *root)
         puts("Check Cart\n\nProbing Slot-1 NAND...");
         const bool detected = select_view(NRIO_RAW_MAIN_READ, &info);
         id = detected ? info.nand_id : 0;
-        action = nrio_boot_report(root, detected ? &info : NULL);
+        action = nrio_boot_report(root, detected ? &info : NULL, false);
     } while (action == NRIO_REPORT_RETRY);
     if (action == NRIO_REPORT_BACKUP) {
         if (!select_view(NRIO_RAW_MAIN_READ, &info) || info.nand_id != id) {
@@ -533,6 +535,112 @@ static void check_cart(const char *root)
     }
 done:
     nrio_recovery_shutdown();
+}
+
+static bool new_capture_directory(const char *root, char directory[40])
+{
+    for (unsigned i = 0; i < BACKUP_LIMIT; ++i) {
+        int len = snprintf(directory, 40, "%s/capture-%03u", root, i);
+        if (len < 0 || len >= 40) break;
+        if (mkdir(directory, 0777) == 0) return true;
+        if (errno != EEXIST) break;
+    }
+    return false;
+}
+
+static bool capture_spare_comparison(const char *directory, struct nrio_rom_spare_compare *comparison)
+{
+    /* Check the manifest/anchors again after the ROM session. This detects
+       many swaps but is not a unique hardware identity check. */
+    struct nrio_raw_info info;
+    uint32_t length;
+    uint8_t anchors[2][SECTOR];
+    if (!select_view(NRIO_RAW_MAIN_READ, &info) ||
+        load_backup_image(directory, 0, &info, &length, anchors) != BACKUP_VALID)
+        return false;
+    uint8_t live[SPARE_SIZE], early[PAGE] __attribute__((aligned(4)));
+    if (!nrio_recovery_read(0, PAGE / SECTOR, early) || memcmp(restore_image, early, PAGE) ||
+        !nand_load_page(0, true) || !nand_read_spare(live) ||
+        memcmp(restore_image + PAGE, live, SPARE))
+        return false;
+
+    char path[56];
+    uint8_t header[NRIO_ROM_HEADER_BYTES];
+    snprintf(path, sizeof(path), "%s/cart-rom.nds", directory);
+    FILE *file = fopen(path, "rb");
+    if (!file) return false;
+    const bool ok = fread(header, 1, sizeof(header), file) == sizeof(header);
+    if (fclose(file) || !ok) return false;
+    *comparison = nrio_compare_cart_spare(header, live);
+    return true;
+}
+
+void nrioTool_export_recovery(const char *root)
+{
+    char directory[40], path[64];
+    consoleClear();
+    puts("Export recovery bundle\n\nReads the cart only.\nSaves to separate storage.\n\nA Continue  B Cancel");
+    do { swiWaitForVBlank(); scanKeys(); } while (!(keysDown() & (KEY_A | KEY_B)));
+    if (keysDown() & KEY_B) return;
+    if (!new_capture_directory(root, directory)) {
+        puts("Could not create capture folder.");
+        goto done;
+    }
+    struct nrio_raw_info info;
+    const bool detected = select_view(NRIO_RAW_MAIN_READ, &info);
+    const bool saved_block = detected && save_backup(directory, false, &info);
+    const bool still_detected = select_view(NRIO_RAW_MAIN_READ, &info);
+    const bool saved_report = nrio_boot_report(directory, still_detected ? &info : NULL, true)
+                              != NRIO_REPORT_SAVE_FAILED;
+    nrio_recovery_shutdown();
+    consoleClear();
+    printf("Saved to %s\n\n", strrchr(directory, '/') + 1);
+    printf("Block 0: %s\nCheck Cart: %s\n\n", saved_block ? "saved" : "not saved",
+           saved_report ? "saved" : "not saved");
+    puts("A Add ROM dump  B Skip");
+    do { swiWaitForVBlank(); scanKeys(); } while (!(keysDown() & (KEY_A | KEY_B)));
+    struct nrio_rom_dump rom;
+    const bool tried_rom = !(keysDown() & KEY_B);
+    const bool saved_rom = tried_rom && nrio_dump_cart_rom(directory, false, &rom);
+    struct nrio_rom_spare_compare comparison;
+    const bool compared = saved_block && saved_rom && capture_spare_comparison(directory, &comparison);
+    nrio_recovery_shutdown();
+
+    snprintf(path, sizeof(path), "%s/CAPTURE.TXT", directory);
+    FILE *log = fopen(path, "w");
+    bool saved_log = false;
+    if (log) {
+        fprintf(log, "N-Card recovery capture (read-only)\nBlock 0: %s\nCheck Cart: %s\nROM: %s\n",
+                saved_block ? "saved" : "not saved", saved_report ? "saved" : "not saved",
+                saved_rom ? "saved" : tried_rom ? "stopped or cancelled" : "skipped");
+        if (saved_rom) {
+            fprintf(log, "ROM bytes: %lu (%s)\nROM CRC32: %08lX\nROM chip ID: %08lX\n",
+                    (unsigned long)rom.bytes, rom.uses_declared_size ? "used size" : "header capacity",
+                    (unsigned long)rom.crc, (unsigned long)rom.chip_id);
+            fprintf(log, "Secure-area CRC16: header %04X, decoded dump %04X (may differ).\n",
+                    (unsigned)rom.header_secure_crc, (unsigned)rom.dump_secure_crc);
+            fputs("ROM 0x1000-0x3FFF is zero-filled; secure area is in dumper form.\n", log);
+            if (!compared)
+                fputs("ROM/spare comparison not verified against the original raw capture.\n", log);
+            else {
+                fprintf(log, "ROM 0x400-0x43F vs. spare page 0: %u of 64 bytes match (spare %s).\n",
+                        comparison.matches, comparison.spare_erased ? "all FF" : "populated");
+                fprintf(log, "Consecutive repeats of the ROM record at 0x80-byte intervals: %u.\n",
+                        comparison.following_repeats);
+            }
+        }
+        const bool ok = !ferror(log);
+        saved_log = fclose(log) == 0 && ok;
+    }
+    consoleClear();
+    printf("Capture %s\n\n", strrchr(directory, '/') + 1);
+    printf("Block 0: %s\nCheck Cart: %s\nROM: %s\n", saved_block ? "saved" : "not saved",
+           saved_report ? "saved" : "not saved", saved_rom ? "saved" : tried_rom ? "not saved" : "skipped");
+    if (!saved_log) puts("Could not save CAPTURE.TXT.");
+    if (compared) printf("ROM/spare match: %u/64 bytes.\n", comparison.matches);
+done:
+    puts("\nA or B Back");
+    do { swiWaitForVBlank(); scanKeys(); } while (!(keysDown() & (KEY_A | KEY_B)));
 }
 
 void nrioTool_sd_recovery(int action, const char *root)

@@ -4,7 +4,7 @@
 #include "region-recovery.h"
 
 enum nrio_report_action {
-    NRIO_REPORT_BACK, NRIO_REPORT_BACKUP, NRIO_REPORT_RETRY,
+    NRIO_REPORT_BACK, NRIO_REPORT_BACKUP, NRIO_REPORT_RETRY, NRIO_REPORT_SAVE_FAILED,
 };
 
 /* A later direct-boot route (e.g. at 0x80000) does not overlap the table.
@@ -26,5 +26,5 @@ static inline bool nrio_report_primary_occupies_secondary(struct nrio_boot_rom r
     }
 }
 
-enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw_info *info);
+enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw_info *info, bool save_only);
 #endif

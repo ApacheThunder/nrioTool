@@ -719,6 +719,7 @@ static void DoNandDump(const char *name, u32 address, u32 directSectors = 0, boo
 }
 
 extern "C" void nrioTool_sd_recovery(int action, const char *root);
+extern "C" void nrioTool_export_recovery(const char *root);
 #include "udisk-setup.h"
 #include "format-origin.h"
 #include "sector-zero.h"
@@ -754,7 +755,7 @@ enum class MenuAction {
 	Utility, Dldi, FileBrowser,
 	DumpMain, DumpStage2, DumpUdisk, DumpBanner, DumpCartRom, TestDump,
 	BootCart, BootGm9, Usb,
-	CheckCart, SaveBlock0, Advanced, BuildUpdate,
+	CheckCart, ExportRecovery, SaveBlock0, Advanced, BuildUpdate,
 	PatchSafeMode, PatchMainMarker, BypassSafeMode, InstallBanner, RestoreArm7, RestoreBlock0, ReplaceSafeMode, RepairUdisk, UdiskSetup, QuickFormat, FullFormat,
 	InstallUdisk, InstallCustomUdisk, InstallXulu, SetupStockMenu, CopyXMenu, RemoveUpdater,
 	DumpFatSector, RestoreFatSector, DumpFatImage, FormatHelp,
@@ -915,6 +916,7 @@ static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
 			{MenuAction::Advanced, "Advanced NAND tools", recoveryAvailable},
 			{MenuAction::Dldi, "DLDI Menu", dsiToolsAvailable},
 			{MenuAction::CheckCart, "Check Cart"},
+			{MenuAction::ExportRecovery, "Export recovery bundle", recoveryAvailable},
 			{MenuAction::BootCart, "Boot Cart", dsiToolsAvailable},
 			{MenuAction::BootGm9, "Boot GodMode9Nrio", dsiToolsAvailable},
 			{MenuAction::BuildUpdate, "Build Update File", !recoveryOnly},
@@ -932,6 +934,10 @@ static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
 			case MenuAction::CheckCart:
 				nrioTool_sd_recovery(5, startupRecoveryRoot ? startupRecoveryRoot : RecoveryStorageRoot());
 				break;
+            case MenuAction::ExportRecovery:
+                if (const char *root = recoveryOnly ? startupRecoveryRoot : RecoveryStorageRoot())
+                    nrioTool_export_recovery(root);
+                break;
 			case MenuAction::BootCart: SetSCFG(); DoCartBoot(); break;
 			case MenuAction::BootGm9: SetSCFG(); DoGM9iBoot(); break;
 			case MenuAction::BuildUpdate: DoUpdateConvert(); break;

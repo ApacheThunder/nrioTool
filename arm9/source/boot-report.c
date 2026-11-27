@@ -149,17 +149,18 @@ static void add_rom(struct report_page *p, const char *name, const struct nrio_b
     if (rom->handoff) line(p, " Handoff %08lX", (unsigned long)rom->handoff);
 }
 
-static void write_report(const char *root, const struct report_page *pages)
+static bool write_report(const char *root, const struct report_page *pages)
 {
-    if (!root) return;
+    if (!root) return false;
     char path[64];
     int n = snprintf(path, sizeof(path), "%s/CHECK-CART.TXT", root);
     FILE *f = n >= 0 && (size_t)n < sizeof(path) ? fopen(path, "a") : NULL;
-    if (!f) return;
+    if (!f) return false;
     for (unsigned i = 0; i < PAGE_COUNT; ++i)
         for (unsigned j = 0; j < pages[i].count; ++j) fprintf(f, "%s\n", pages[i].line[j]);
     fputs("\nRead-only check. No cart changes.\n\n", f);
-    fclose(f);
+    const bool ok = !ferror(f);
+    return fclose(f) == 0 && ok;
 }
 
 static void print_fingerprint(struct report_page *page, uint32_t sectors,
@@ -211,7 +212,7 @@ static enum nrio_report_action show_report(const struct report_page *pages, bool
     }
 }
 
-enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw_info *info)
+enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw_info *info, bool save_only)
 {
     struct report_page pages[PAGE_COUNT] = {0};
     struct report_page *summary = &pages[0], *nand = &pages[1], *boot = &pages[2], *files = &pages[3];
@@ -252,7 +253,8 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
         line(files, "Not checked.");
         line(spare, "NAND unavailable.");
         line(survivors, "NAND unavailable.");
-        write_report(root, pages);
+        const bool saved = write_report(root, pages);
+        if (save_only) return saved ? NRIO_REPORT_BACK : NRIO_REPORT_SAVE_FAILED;
         return show_report(pages, false, false, root);
     }
 
@@ -475,6 +477,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
         line(help, "Try booting from System Menu.");
         line(help, "See Boot tables if it hangs.");
     }
-    write_report(root, pages);
+    const bool saved = write_report(root, pages);
+    if (save_only) return saved ? NRIO_REPORT_BACK : NRIO_REPORT_SAVE_FAILED;
     return show_report(pages, root != NULL, true, root);
 }

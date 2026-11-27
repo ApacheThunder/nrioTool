@@ -55,6 +55,16 @@ includes a `title` folder for a HiyaCFW System Menu install.
 install firmware. In DSi mode, **Boot GodMode9Nrio** uses an existing
 `sd:/nrioFiles/GM9Nrio.nds` or extracts the bundled copy if needed.
 
+## Dump the cartridge ROM
+
+**Main Menu → Dump cartridge ROM** saves the Slot-1 ROM view to a new
+`nrioFiles/cart-rom-NNN.nds` on DSi SD or separate writable Slot-2
+storage. This is different from the 22-sector raw `stage1.bin` below.
+
+To collect both views, use **Utility Menu → Export recovery bundle**.
+It can save a block-0 backup and Check Cart report even if the ROM
+cannot be read. [Recovery bundle instructions](docs/diagnose-and-back-up.md#export-a-recovery-bundle)
+
 ## Dump SRLs
 
 The Main Menu probes Slot-1 with the read-only NAND backend and lists the SRL dumps available for the detected layout. **Dump main SRL** saves the original 22-sector main area as `stage1.bin`. **Dump Safe Mode SRL**, **Dump bootleg SRL**, and **Dump uDisk SRL** follow their NAND block tables into `safe-original.nds`, `bootleg.nds`, or `udisk.nds`. The table reader recognizes a primary table redirected to uDisk and skips tables marked `QAFE`. Mapped dumps use 16 KiB blocks and retain the last block's padding. A credible ROM size limits the dump. Otherwise, the reader uses the valid prefix of the block table.

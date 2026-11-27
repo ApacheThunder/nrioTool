@@ -43,6 +43,34 @@ the NAND or reconstruct an erased block 0.
 
 A block-0 backup holds the first physical erase block and its spare records. It does **not** back up all hidden firmware or any files outside that block. Copy files separately and dump any available safe-mode/uDisk SRLs before changing their boot routes. SRL dumps are useful references, not substitutes for the matching main-and-spare backup.
 
+## Export a recovery bundle
+
+1. Launch from DSi SD or separate writable Slot-2 storage. If normal startup fails, hold **L** when launching.
+2. Open **Utility Menu → Export recovery bundle**. Press **A** to save Check Cart and, if readable, the block-0 backup in a new `nrioFiles/capture-NNN` folder. You can use **B** to skip the ROM and still keep those files.
+3. To include the ROM, choose **Add ROM dump**. If the DS prompts you to reinsert the cart, use the same one. A failed or cancelled ROM read does not delete the earlier raw backup or report.
+
+The folder contains `CAPTURE.TXT` with the outcome of each step.
+`block0-000` inside it is the usual restore backup. Keep its three files
+together. To make it selectable by **Restore block 0**, copy that whole
+folder under `nrioFiles`, with a free `block0-NNN` name.
+
+The optional `cart-rom.nds` is the logical ROM that the cart presents
+to Slot-1, not a raw NAND image and not the hidden uDisk dump. The dumper
+accepts DS-mode ROMs and reads the first 4 KiB twice without replacing
+the header padding. It zero-fills `0x1000–0x3FFF` and uses the usual
+decoded form for the secure area. The log shows both the stored
+secure-area CRC and the CRC of the exported bytes. A difference alone
+doesn't establish damage, because they may describe different forms.
+The dumper saves the plausible used size when
+present, or the capacity from the header otherwise.
+
+When the raw backup and live checks agree, the log compares the 64
+bytes at ROM offset `0x400` with spare page 0. It also reports adjacent
+copies of the ROM bytes on `0x80` boundaries. This checks the pattern
+Apache Thunder saw in an older Wi-Fi dump. A match does not make the
+dump a safe source to program into NAND. The new ROM path still needs
+physical-cart testing.
+
 ## Check NAND health
 
 Press **Y** in Check Cart when the scan is available. It does not erase or program NAND. On independent storage it can save `NAND-HEALTH.TXT`. Marked blocks or repeat read errors help narrow down the issue. A clean read-only scan does not prove that a block will accept writes, and the scan does not remap anything.
