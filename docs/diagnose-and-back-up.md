@@ -77,7 +77,7 @@ bytes at ROM offset `0x400` with spare page 0. The log also compares ROM
 `0xC00–0xFFF` with raw main NAND `0x000–0x3FF`, and counts consecutive
 copies of the ROM record at `0x80`-byte intervals. Apache Thunder's
 DS Linker and both ExpressCard captures matched both windows exactly.
-These are comparisons, not a full logical-to-physical map. A match does not make the
+These are comparisons, not a full logical-to-physical map. [First-stage ROM notes](main-rom-notes.md) A match does not make the
 dump a safe source to program into NAND. The new ROM path still needs
 physical-cart testing.
 
