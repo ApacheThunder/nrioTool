@@ -17,7 +17,23 @@
 | Read errors, unstable pages, or FAT won’t mount | Copy any accessible files, then run a [read-only health scan](#check-nand-health). Don’t format a cart whose files you still want to recover. |
 | Early boot or block 0 looks erased or corrupt | See [Recover a cart that won’t boot](recover-a-bricked-cart.md). |
 
-**NAND and early boot** reports whether the main ARM9 marker is supported, already patched, unknown, or unreadable. The report can also flag a known spare-area overlap on pages 2 and 3. Neither result means a repair has been staged. Check Cart recognizes some archived DS Linker, DS Fire Link, Ultra FlashPass EX, and stock uDisk versions from two sectors of the mapped ROM. That identification alone does not authorize writes or add support for a new NAND geometry.
+**NAND and early boot** reports whether the main ARM9 marker is supported, already patched, unknown, or unreadable. Neither this check nor the boot spare check stages a repair. Check Cart recognizes some archived DS Linker, DS Fire Link, Ultra FlashPass EX, and stock uDisk versions from two sectors of the mapped ROM. That identification alone does not authorize writes or add support for a new NAND geometry.
+
+## Check the boot spare records
+
+On the **Boot spare check** page, nrioTool reads each of the first six
+spare records twice. These are 64-byte records, separate from each page's
+main data. The same results are saved in `CHECK-CART.TXT`.
+
+- **Page 0** is reported as populated or all `FF`. Both are seen on working carts.
+- **ARM7 p1, p4 and p5** show whether each copy matches a known stock fingerprint and whether the three copies agree. Apache Thunder's eight bootleg dumps match the `1918027E` variant. An older 8 Gbit DS Linker capture matches `1118027E`.
+- **Table p2 and p3** show stock fingerprint matches and whether the overlapping 56 bytes agree. Agreement alone does not verify the unique eight bytes in either record.
+- **Read failed** or **unstable** means nrioTool could not verify that record. It is not treated as erased or as evidence of a stock match.
+
+This is useful even if the main boot header is missing, as long as the
+NAND probe works. A match identifies known spare data, not a compatible
+recovery image or a guarantee the cart boots. This check does not write
+the NAND or reconstruct an erased block 0.
 
 ## Make a recovery backup
 

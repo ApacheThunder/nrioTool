@@ -9,6 +9,7 @@
 #include <sys/statvfs.h>
 
 #include "boot-report.h"
+#include "boot-spare.h"
 #include "bundle-assets.h"
 #include "button-legend.h"
 #include "nand-health.h"
@@ -19,7 +20,7 @@
 #include "udisk-setup-io.h"
 #include "udisk-upgrade-check.h"
 
-enum { PAGE_COUNT = 6, REPORT_LINES = 20, VISIBLE_LINES = 12, LINE_BYTES = 32, SECTOR = 512 };
+enum { PAGE_COUNT = 7, REPORT_LINES = 20, VISIBLE_LINES = 12, LINE_BYTES = 32, SECTOR = 512 };
 struct report_page { char line[REPORT_LINES][LINE_BYTES]; unsigned count; };
 enum menu_file { NOT_CHECKED, MISSING, VALID_HEADER, UNKNOWN_HEADER, READ_ERROR };
 enum early_state { NO_READ, ERASED, KNOWN_HEADER, UNKNOWN_MAIN };
@@ -66,16 +67,32 @@ static enum early_state check_early(unsigned pages)
     return ERASED;
 }
 
-static bool shared_table_repeats(void)
+static bool read_spare_record(void *unused, unsigned page, uint8_t bytes[NRIO_BOOT_SPARE_BYTES])
 {
-    uint8_t first[SPARE_SIZE], second[SPARE_SIZE];
-    if (!nand_load_page(2, true) || !nand_read_spare(first) ||
-        !nand_load_page(3, true) || !nand_read_spare(second)) return false;
-    /* The archived DS Linker records repeat 56 bytes across both pages.
-       Show the shape only. This is not a full key or cart identity check. */
-    for (unsigned i = 1; i < 56; ++i)
-        if (first[i] != first[0]) return !memcmp(first, second + 8, 56);
-    return false;
+    (void)unused;
+    return nand_load_page(page, true) && nand_read_spare(bytes);
+}
+
+static void add_boot_spare(struct report_page *p)
+{
+    static const char *const names[] = {"Page 0", "ARM7 p1", "Table p2",
+                                        "Table p3", "ARM7 p4", "ARM7 p5"};
+    static const char *const states[] = {
+        "read failed", "unstable", "all FF", "unrecognized",
+        "1918027E match", "1118027E match", "stock match",
+    };
+    static const char *const comparisons[] = {"not compared", "match", "differ"};
+    struct nrio_boot_spare_report report;
+    nrio_check_boot_spare(read_spare_record, NULL, &report);
+    line(p, "Read twice, no NAND writes.");
+    for (unsigned i = 0; i < NRIO_BOOT_SPARE_PAGES; ++i) {
+        const char *state = i == 0 && report.page[i] == NRIO_SPARE_OTHER ?
+                            "populated" : states[report.page[i]];
+        line(p, "%s: %s", names[i], state);
+    }
+    line(p, "ARM7 copies: %s", comparisons[report.arm7_copies]);
+    line(p, "Table overlap: %s", comparisons[report.table_overlap]);
+    line(p, "Match does not approve write.");
 }
 
 static bool read_sector(void *unused, uint32_t lba, uint8_t data[SECTOR])
@@ -198,7 +215,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
 {
     struct report_page pages[PAGE_COUNT] = {0};
     struct report_page *summary = &pages[0], *nand = &pages[1], *boot = &pages[2], *files = &pages[3];
-    struct report_page *survivors = &pages[4], *help = &pages[5];
+    struct report_page *spare = &pages[4], *survivors = &pages[5], *help = &pages[6];
     line(help, "What to try next");
     line(help, "");
     line(summary, "Summary");
@@ -206,6 +223,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
     line(nand, "NAND and early boot");
     line(boot, "Boot tables");
     line(files, "FAT and menu files");
+    line(spare, "Boot spare check");
     line(survivors, "Surviving boot data");
     if (!info) {
         uint32_t id;
@@ -232,6 +250,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
         }
         line(boot, "Not checked.");
         line(files, "Not checked.");
+        line(spare, "NAND unavailable.");
         line(survivors, "NAND unavailable.");
         write_report(root, pages);
         return show_report(pages, false, false, root);
@@ -247,8 +266,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
                     ? "DSGB boot header found." : early == NO_READ
                     ? "Early NAND read failed." : "Unknown early main data.");
     if (early == ERASED) line(nand, "Main and spare both erased.");
-    if (early == KNOWN_HEADER && shared_table_repeats())
-        line(nand, "Shared table repeats in spare.");
+    add_boot_spare(spare);
 
     if (early == KNOWN_HEADER) {
         const size_t bytes = NRIO_MAIN_MARKER_PROBE_PAGES * PAGE_RECORD_SIZE;
