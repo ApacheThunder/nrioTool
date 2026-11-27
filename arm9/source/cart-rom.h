@@ -17,6 +17,7 @@ struct nrio_rom_spare_compare {
     unsigned matches;
     unsigned main_matches;
     unsigned following_repeats;
+    unsigned masked_copies;
     bool spare_erased;
 };
 

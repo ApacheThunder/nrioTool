@@ -10,6 +10,7 @@ struct nrio_rom_dump {
     uint32_t crc;
     uint32_t chip_id;
     uint16_t header_secure_crc, dump_secure_crc;
+    int16_t early_b7_spare_matches, early_b7_main_matches;
     bool uses_declared_size;
 };
 

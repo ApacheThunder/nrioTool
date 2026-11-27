@@ -1,5 +1,6 @@
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -548,7 +549,8 @@ static bool new_capture_directory(const char *root, char directory[40])
     return false;
 }
 
-static bool capture_spare_comparison(const char *directory, struct nrio_rom_spare_compare *comparison)
+static bool capture_spare_comparison(const char *directory, struct nrio_rom_spare_compare *comparison,
+                                     unsigned *arm7_matches)
 {
     /* Check the manifest/anchors again after the ROM session. This detects
        many swaps but is not a unique hardware identity check. */
@@ -570,7 +572,20 @@ static bool capture_spare_comparison(const char *directory, struct nrio_rom_spar
     FILE *file = fopen(path, "rb");
     if (!file) return false;
     const bool ok = fread(header, 1, sizeof(header), file) == sizeof(header);
+    const uint32_t arm7_offset = ok ? word(header + 0x30) : 0;
+    uint8_t arm7[SPARE];
+    const bool arm7_read = ok && arm7_offset >= NRIO_ROM_HEADER_BYTES && arm7_offset <= LONG_MAX &&
+                          word(header + 0x3c) == sizeof(arm7) &&
+                          !fseek(file, arm7_offset, SEEK_SET) &&
+                          fread(arm7, 1, sizeof(arm7), file) == sizeof(arm7);
     if (fclose(file) || !ok) return false;
+    *arm7_matches = arm7_read ? 0 : 8;
+    if (arm7_read) {
+        const unsigned pages[] = {1, 4, 5};
+        for (unsigned i = 0; i < sizeof(pages) / sizeof(pages[0]); ++i)
+            if (!memcmp(arm7, restore_image + pages[i] * (PAGE + SPARE) + PAGE, SPARE))
+                *arm7_matches |= 1u << i;
+    }
     *comparison = nrio_compare_cart_spare(header, live, early);
     return true;
 }
@@ -603,7 +618,9 @@ void nrioTool_export_recovery(const char *root)
     const bool tried_rom = !(keysDown() & KEY_B);
     const bool saved_rom = tried_rom && nrio_dump_cart_rom(directory, false, &rom);
     struct nrio_rom_spare_compare comparison;
-    const bool compared = saved_block && saved_rom && capture_spare_comparison(directory, &comparison);
+    unsigned arm7_matches;
+    const bool compared = saved_block && saved_rom &&
+                          capture_spare_comparison(directory, &comparison, &arm7_matches);
     nrio_recovery_shutdown();
 
     snprintf(path, sizeof(path), "%s/CAPTURE.TXT", directory);
@@ -620,6 +637,17 @@ void nrioTool_export_recovery(const char *root)
             fprintf(log, "Secure-area CRC16: header %04X, decoded dump %04X (may differ).\n",
                     (unsigned)rom.header_secure_crc, (unsigned)rom.dump_secure_crc);
             fputs("ROM 0x1000-0x3FFF is zero-filled; secure area is in dumper form.\n", log);
+            if (rom.early_b7_spare_matches < 0)
+                fputs("Early B7 0x400 comparison: read failed.\n", log);
+            else {
+                fprintf(log, "Early B7 0x400 vs. header read: %d of 64 bytes match.\n",
+                        rom.early_b7_spare_matches);
+                if (rom.early_b7_main_matches >= 0)
+                    fprintf(log, "Early B7 0xC00-0xFFF vs. header read: %d of 1024 bytes match.\n",
+                            rom.early_b7_main_matches);
+                else fputs("Early B7 0xC00 comparison: read failed.\n", log);
+            }
+
             if (!compared)
                 fputs("ROM/spare comparison not verified against the original raw capture.\n", log);
             else {
@@ -627,6 +655,11 @@ void nrioTool_export_recovery(const char *root)
                         comparison.matches, comparison.spare_erased ? "all FF" : "populated");
                 fprintf(log, "Consecutive repeats of the ROM record at 0x80-byte intervals: %u.\n",
                         comparison.following_repeats);
+                fprintf(log, "ROM 0x800-0xBFF masked spare copies: %u of 8.\n", comparison.masked_copies);
+                if (arm7_matches != 8)
+                    fprintf(log, "ROM ARM7 matches saved spare: page 1 %s, page 4 %s, page 5 %s.\n",
+                            arm7_matches & 1 ? "yes" : "no", arm7_matches & 2 ? "yes" : "no",
+                            arm7_matches & 4 ? "yes" : "no");
                 fprintf(log, "ROM 0xC00-0xFFF vs. main NAND 0x000-0x3FF: %u of 1024 bytes match.\n",
                         comparison.main_matches);
             }

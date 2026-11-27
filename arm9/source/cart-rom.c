@@ -59,5 +59,12 @@ struct nrio_rom_spare_compare nrio_compare_cart_spare(const uint8_t header[NRIO_
             ++result.following_repeats;
         }
     }
+    /* The next 1 KiB window shows bytes 0x20-0x3F of spare page 0,
+       preceded by 32 FF bytes in each 0x80-byte slot in paired captures. */
+    for (unsigned off = 0x800; off < 0xc00; off += 0x80) {
+        bool masked = !memcmp(header + off + 32, spare + 32, 32);
+        for (unsigned i = 0; i < 32; ++i) masked &= header[off + i] == 0xff;
+        if (masked) ++result.masked_copies;
+    }
     return result;
 }

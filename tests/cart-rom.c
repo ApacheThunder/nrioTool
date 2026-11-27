@@ -60,6 +60,14 @@ int main(int argc, char **argv)
     header[0x500] ^= 1;
     match = nrio_compare_cart_spare(header, spare, main_data);
     assert(match.following_repeats == 1 && match.main_matches == 1023);
+    for (unsigned off = 0x800; off < 0xc00; off += 0x80) {
+        memset(header + off, 0xff, 32);
+        memcpy(header + off + 32, spare + 32, 32);
+    }
+    match = nrio_compare_cart_spare(header, spare, main_data);
+    assert(match.masked_copies == 8);
+    header[0xa20] ^= 1;
+    assert(nrio_compare_cart_spare(header, spare, main_data).masked_copies == 7);
 
     /* Optional private raw block-0 captures use the DS header at offset 0x400. */
     for (int i = 1; i < argc; ++i) {

@@ -597,6 +597,16 @@ u32 cardInitForRomDump(sNDSHeaderExt *header, u32 headerWindow[0x1000 / sizeof(u
     return cardInitInternal(header, false, headerWindow);
 }
 
+/* Explicit diagnostic only. Do not replace the header window in the
+   exported image: the cartridge may remap these low B7 addresses. */
+bool cardReadEarlyB7(u32 offset, u32 output[0x200 / sizeof(u32)])
+{
+    if (offset != 0x400 && offset != 0xc00 && offset != 0xe00) return false;
+    return dumpParam(CARD_CMD_DATA_READ, offset,
+        portFlags | CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(1),
+        output, 0x200 / sizeof(u32));
+}
+
 bool cardReadDumpSector(u32 offset, u32 output[0x200 / sizeof(u32)])
 {
     if ((offset & 0x1ff) || offset < 0x1000) return false;

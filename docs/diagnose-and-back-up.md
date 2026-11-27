@@ -77,9 +77,16 @@ bytes at ROM offset `0x400` with spare page 0. The log also compares ROM
 `0xC00–0xFFF` with raw main NAND `0x000–0x3FF`, and counts consecutive
 copies of the ROM record at `0x80`-byte intervals. Apache Thunder's
 DS Linker and both ExpressCard captures matched both windows exactly.
+The log also checks the masked spare copies in ROM `0x800–0xBFF` and
+compares a 64-byte ROM ARM7 payload with the saved spare copies. It tries
+direct `B7` reads at the two early offsets separately from the header
+read. A failed early `B7` probe does not invalidate the saved ROM.
 These are comparisons, not a full logical-to-physical map. [First-stage ROM notes](main-rom-notes.md) A match does not make the
 dump a safe source to program into NAND. The new ROM path still needs
 physical-cart testing.
+
+For a recognized main header, **NAND and early boot** shows the ASIC
+setup word. It is not used to infer the save type or erase geometry.
 
 ## Check NAND health
 

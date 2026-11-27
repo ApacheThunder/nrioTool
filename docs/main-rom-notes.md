@@ -9,14 +9,19 @@ or manifests.
 | --- | --- |
 | `0x0000–0x03FF` | Raw main NAND `0x0400–0x07FF` |
 | `0x0400–0x043F` | All 64 bytes of spare page 0, with seven more copies at `0x80`-byte intervals through `0x0780` |
+| `0x0800–0x0BFF` | Eight copies with the first 32 bytes masked to `FF` and the last 32 bytes from spare page 0 |
 | `0x0C00–0x0FFF` | Raw main NAND `0x0000–0x03FF`, all 1,024 bytes |
 | `0x8800–0x883F` | The 64-byte ARM7 payload, matching spare pages 1, 4, and 5 |
 
 The first-page spare record is populated in all three captures. This
 confirms that the tested cart's ROM header read exposes that record. It
 does not establish what the record does or that the same mapping works
-on every board or with a different dumping path. The purpose of the
-raw-main prefix at `0x0C00` remains unknown.
+on every board or with a direct B7 read. The capture log now tests the
+two read paths separately on real carts. The purpose of the
+raw-main prefix at `0x0C00` remains unknown. In these three captures
+only its first 20 bytes contain nonzero data, beginning with `gao`.
+The stock setup word `0x10830000` also appears on some 64-page
+bootleg samples, so it is not an erase-size discriminator.
 
 ## First pass over the boot code
 

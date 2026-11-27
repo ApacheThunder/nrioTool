@@ -45,6 +45,7 @@ extern u32 cardNandRwStart;
 ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset);
 
 u32 cardInitForRomDump(sNDSHeaderExt *header, u32 headerWindow[0x1000 / sizeof(u32)]);
+bool cardReadEarlyB7(u32 offset, u32 output[0x200 / sizeof(u32)]);
 bool cardReadDumpSector(u32 offset, u32 output[0x200 / sizeof(u32)]);
 
 void cardRead (u32 src, void* dest, bool nandSave);

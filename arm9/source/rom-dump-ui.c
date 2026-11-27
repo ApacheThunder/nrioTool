@@ -28,6 +28,21 @@ static bool file_missing(const char *path)
     return stat(path, &st) != 0 && errno == ENOENT;
 }
 
+static int16_t compare_early_b7(const uint8_t *header, uint32_t address, unsigned bytes)
+{
+    u32 sector[CARD_DATA_BLOCK_SIZE / sizeof(u32)];
+    const uint8_t *data = (const uint8_t *)sector;
+    int16_t matches = 0;
+    while (bytes) {
+        if (!cardReadEarlyB7(address, sector)) return -1;
+        const unsigned count = bytes < CARD_DATA_BLOCK_SIZE ? bytes : CARD_DATA_BLOCK_SIZE;
+        for (unsigned i = 0; i < count; ++i) matches += data[i] == header[address + i];
+        address += CARD_DATA_BLOCK_SIZE;
+        bytes -= count;
+    }
+    return matches;
+}
+
 bool nrio_dump_cart_rom(const char *root, bool numbered, struct nrio_rom_dump *result)
 {
     char name[24], path[64], temporary[72];
@@ -118,7 +133,13 @@ bool nrio_dump_cart_rom(const char *root, bool numbered, struct nrio_rom_dump *r
             .bytes = plan.bytes, .crc = crc, .chip_id = cardGetId(),
             .header_secure_crc = header_bytes[0x6c] | (uint16_t)header_bytes[0x6d] << 8,
             .dump_secure_crc = secure_crc, .uses_declared_size = plan.uses_declared_size,
+            .early_b7_spare_matches = -1, .early_b7_main_matches = -1,
         };
+        if (!numbered) {
+            result->early_b7_spare_matches = compare_early_b7(header_bytes, 0x400, 64);
+            if (result->early_b7_spare_matches >= 0)
+                result->early_b7_main_matches = compare_early_b7(header_bytes, 0xc00, 0x400);
+        }
         printf("Saved %s\n%lu bytes, CRC32 %08lX\n", name,
                (unsigned long)plan.bytes, (unsigned long)crc);
     }

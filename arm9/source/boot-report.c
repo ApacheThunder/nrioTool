@@ -51,12 +51,15 @@ static bool blank_ff(const uint8_t *p, size_t count)
     return true;
 }
 
-static enum early_state check_early(unsigned pages)
+static enum early_state check_early(unsigned pages, uint32_t *card_type)
 {
     uint8_t main[PAGE_SIZE], spare[SPARE_SIZE];
     if (!nrio_recovery_read(0, PAGE_SIZE / SECTOR, main)) return NO_READ;
-    if (!memcmp(main + 0x400, "DSGB", 4) && !memcmp(main + 0x40c, "DSGB", 4))
+    if (!memcmp(main + 0x400, "DSGB", 4) && !memcmp(main + 0x40c, "DSGB", 4)) {
+        *card_type = main[0x408] | (uint32_t)main[0x409] << 8 |
+                     (uint32_t)main[0x40a] << 16 | (uint32_t)main[0x40b] << 24;
         return KNOWN_HEADER;
+    }
     if (!blank_ff(main, sizeof(main))) return UNKNOWN_MAIN;
     if (pages != 64 && pages != 128) return UNKNOWN_MAIN;
     for (unsigned i = 0; i < pages; ++i) {
@@ -273,7 +276,8 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
     line(nand, "%lu physical sectors", (unsigned long)info->sectors);
     line(nand, "%s", probe == NRIO_CART_PROBE_RETRY_READY ?
          "Probe: read-only setup retry" : "Probe: direct NAND ID");
-    enum early_state early = check_early(erase_pages);
+    uint32_t card_type;
+    enum early_state early = check_early(erase_pages, &card_type);
     line(nand, "");
     line(nand, "%s", early == ERASED ? "Block 0 is all FF." : early == KNOWN_HEADER
                     ? "DSGB boot header found." : early == NO_READ
@@ -282,6 +286,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
     add_boot_spare(spare);
 
     if (early == KNOWN_HEADER) {
+        line(nand, "ASIC setup word %08lX", (unsigned long)card_type);
         const size_t bytes = NRIO_MAIN_MARKER_PROBE_PAGES * PAGE_RECORD_SIZE;
         uint8_t *records = malloc(bytes);
         if (records) {
