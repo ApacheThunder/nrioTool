@@ -596,14 +596,15 @@ static bool capture_spare_comparison(const char *directory, struct nrio_rom_spar
     if (!select_view(NRIO_RAW_MAIN_READ, &info) ||
         load_backup_image(directory, 0, &info, &length, anchors) != BACKUP_VALID)
         return false;
-    uint8_t live[SPARE_SIZE], early[PAGE] __attribute__((aligned(4)));
+    uint8_t live[SPARE_SIZE];
+    static uint8_t early[PAGE] __attribute__((aligned(4)));
     if (!nrio_recovery_read(0, PAGE / SECTOR, early) || memcmp(restore_image, early, PAGE) ||
         !nand_load_page(0, true) || !nand_read_spare(live) ||
         memcmp(restore_image + PAGE, live, SPARE))
         return false;
 
     char path[56];
-    uint8_t header[NRIO_ROM_HEADER_BYTES];
+    static uint8_t header[NRIO_ROM_HEADER_BYTES];
     snprintf(path, sizeof(path), "%s/cart-rom.nds", directory);
     FILE *file = fopen(path, "rb");
     if (!file) return false;
@@ -678,7 +679,10 @@ void nrioTool_export_recovery(const char *root)
     const bool detected = select_view(NRIO_RAW_MAIN_READ, &info);
     const bool saved_block = detected && save_backup(directory, false, &info);
     const bool still_detected = select_view(NRIO_RAW_MAIN_READ, &info);
-    struct nrio_fireline_layout fireline = {0};
+    /* Export owns this buffer until its final screen. Check Cart uses a
+       separate buffer so it cannot overwrite the capture log fields. */
+    static struct nrio_fireline_layout fireline;
+    memset(&fireline, 0, sizeof(fireline));
     if (still_detected)
         nrio_fireline_inspect(capture_read_sector, NULL, info.sectors, &fireline);
     const unsigned saved_maps = save_fireline_capture(directory, &fireline);

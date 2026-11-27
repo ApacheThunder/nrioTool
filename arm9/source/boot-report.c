@@ -237,7 +237,10 @@ static enum nrio_report_action show_report(const struct report_page *pages, bool
 
 enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw_info *info, bool save_only)
 {
-    struct report_page pages[PAGE_COUNT] = {0};
+    /* This UI runs synchronously, including when called by recovery export.
+       Keep its page buffer off the small shared DTCM stack. */
+    static struct report_page pages[PAGE_COUNT];
+    memset(pages, 0, sizeof(pages));
     struct report_page *summary = &pages[0], *nand = &pages[1], *boot = &pages[2], *files = &pages[3];
     struct report_page *spare = &pages[4], *survivors = &pages[5], *help = &pages[6];
     line(help, "What to try next");
@@ -373,7 +376,7 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
         }
     }
     line(boot, "%s", version);
-    struct nrio_fireline_layout fireline;
+    static struct nrio_fireline_layout fireline;
     nrio_fireline_inspect(read_sector, NULL, info->sectors, &fireline);
     if (fireline.dumpable)
         line(boot, "FireLine OS at %08lX", (unsigned long)fireline.os_address);

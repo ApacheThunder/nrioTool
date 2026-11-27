@@ -20,6 +20,9 @@ enum {
 
 bool nrio_slot2_usb_present(void)
 {
+    /* DSi mode has no Slot-2 bus. Even reading its mapped address aborts. */
+    if (isDSiMode()) return false;
+
     const int irq_state = enterCriticalSection();
     const u16 saved = REG_EXMEMCNT;
     sysSetCartOwner(BUS_OWNER_ARM9);
