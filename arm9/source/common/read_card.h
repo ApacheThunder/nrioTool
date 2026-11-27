@@ -26,6 +26,8 @@
 #include "ndsheaderbanner.h"
 
 #define CARD_INIT_HEADER_CRC 0x16
+#define CARD_INIT_ROM_READ 0x17
+#define CARD_INIT_ROM_LAYOUT 0x18
 #define CARD_NDS_HEADER_SIZE (0x200)
 #define CARD_SECURE_AREA_OFFSET (0x4000)
 #define CARD_SECURE_AREA_SIZE (0x4000)
@@ -41,6 +43,9 @@ extern u32 cardNandRomEnd;
 extern u32 cardNandRwStart;
 
 ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset);
+
+u32 cardInitForRomDump(sNDSHeaderExt *header, u32 headerWindow[0x1000 / sizeof(u32)]);
+bool cardReadDumpSector(u32 offset, u32 output[0x200 / sizeof(u32)]);
 
 void cardRead (u32 src, void* dest, bool nandSave);
 

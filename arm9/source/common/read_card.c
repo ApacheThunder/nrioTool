@@ -316,7 +316,58 @@ static void switchToTwlBlowfish(sNDSHeaderExt* ndsHeader) {
 }
 
 
-ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
+/* The diagnostic path must not hang on an incomplete ROM transfer. */
+#define NRIO_ROM_POLL_LIMIT 2000000u
+
+static bool waitRomIdle(bool bounded)
+{
+    for (unsigned i = 0; REG_ROMCTRL & CARD_BUSY; ++i) {
+        if (bounded && i == NRIO_ROM_POLL_LIMIT) {
+            REG_ROMCTRL = CARD_nRESET;
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool dumpTransfer(u32 flags, u32 *dest, u32 words, const u8 command[8])
+{
+    if (!waitRomIdle(true)) return false;
+    cardWriteCommand(command);
+    REG_ROMCTRL = flags & ~CARD_WR;
+    u32 transferred = 0;
+    for (unsigned i = 0; i < NRIO_ROM_POLL_LIMIT; ++i) {
+        const u32 status = REG_ROMCTRL;
+        if (status & CARD_DATA_READY) {
+            const u32 data = REG_CARD_DATA_RD;
+            if (dest && transferred < words) dest[transferred] = data;
+            ++transferred;
+        }
+        if (!(status & CARD_BUSY)) return !dest || transferred == words;
+    }
+    REG_ROMCTRL = CARD_nRESET;
+    return false;
+}
+
+static bool dumpParam(u8 command, u32 address, u32 flags, u32 *dest, u32 words)
+{
+    const u8 wire[8] = {0, 0, 0, address, address >> 8, address >> 16, address >> 24, command};
+    return dumpTransfer(flags, dest, words, wire);
+}
+
+/* Keep existing boot transfers unchanged outside an explicit ROM capture. */
+#define INIT_TRANSFER(flags, dest, length, cmd) do {                         \
+    if (!dumpHeader) cardPolledTransfer(flags, dest, length, cmd);            \
+    else if (!dumpTransfer(flags, dest, (length) / sizeof(u32), cmd)) \
+        return CARD_INIT_ROM_READ;                                          \
+} while (0)
+#define INIT_PARAM(cmd, address, flags, dest, words) do {                    \
+    if (!dumpHeader) cardParamCommand(cmd, address, flags, dest, words);      \
+    else if (!dumpParam(cmd, address, flags, dest, words))                   \
+        return CARD_INIT_ROM_READ;                                          \
+} while (0)
+
+static ITCM_CODE u32 cardInitInternal(sNDSHeaderExt* ndsHeader, bool SkipSlotReset, u32 *dumpHeader) {
 	u32 portFlagsKey1, portFlagsSecRead;
 	normalChip = false; // As defined by GBAtek, normal chip secure area and header are accessed in blocks of 0x200, other chip in blocks of 0x1000
 	nandChip = false;
@@ -336,7 +387,7 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 		enableSlot1();
 		for(i = 0; i < 15; i++) { swiWaitForVBlank(); }
 		// Dummy command sent after card reset
-		cardParamCommand (CARD_CMD_DUMMY, 0, CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F), NULL, 0);
+		INIT_PARAM(CARD_CMD_DUMMY, 0, CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F), NULL, 0);
 	}
 	
 
@@ -346,15 +397,18 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	for(i = 0; i < 25; i++) { swiWaitForVBlank(); }
 	REG_AUXSPICNTH = CARD_CR1_ENABLE | CARD_CR1_IRQ;
 	REG_ROMCTRL=CARD_nRESET|CARD_SEC_SEED;
-	while(REG_ROMCTRL&CARD_BUSY) ;
-	cardReset();
-	while(REG_ROMCTRL&CARD_BUSY) ;
+	if (!waitRomIdle(dumpHeader != NULL)) return CARD_INIT_ROM_READ;
+	if (dumpHeader) {
+        INIT_PARAM(CARD_CMD_DUMMY, 0, CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW |
+                   CARD_BLK_SIZE(5) | CARD_DELAY2(0x18), NULL, 0);
+    } else cardReset();
+	if (!waitRomIdle(dumpHeader != NULL)) return CARD_INIT_ROM_READ;
 
 	toncset(headerData, 0, sizeof(headerData));
 	toncset(ndsHeader, 0, sizeof(*ndsHeader));
 	// Validate the base header before acting on any fields from it.
 	for (unsigned attempt = 0; ; ++attempt) {
-		cardParamCommand(CARD_CMD_HEADER_READ, 0,
+		INIT_PARAM(CARD_CMD_HEADER_READ, 0,
 			CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) |
 			CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
 			headerData, CARD_NDS_HEADER_SIZE / sizeof(u32));
@@ -364,23 +418,46 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 		swiWaitForVBlank();
 	}
 
-	iCardId=cardReadID(CARD_CLK_SLOW);
-	while(REG_ROMCTRL & CARD_BUSY);
+	if (dumpHeader) {
+        INIT_PARAM(CARD_CMD_HEADER_CHIPID, 0, CARD_CLK_SLOW | CARD_ACTIVATE |
+                   CARD_nRESET | CARD_BLK_SIZE(7), &iCardId, 1);
+        if (!iCardId || iCardId == UINT32_MAX) return CARD_INIT_ROM_READ;
+    } else iCardId = cardReadID(CARD_CLK_SLOW);
+	if (!waitRomIdle(dumpHeader != NULL)) return CARD_INIT_ROM_READ;
 	// iCardId = 0x00000FC2;
 
 	normalChip = (iCardId & BIT(31)) != 0; // ROM chip ID MSB
 	nandChip = (iCardId & BIT(27)) != 0; // Card has a NAND chip
 	
-	if ((ndsHeader->unitCode != 0) || (ndsHeader->dsi_flags != 0)) {
+    if (dumpHeader) {
+        if (ndsHeader->unitCode != 0) return CARD_INIT_ROM_LAYOUT;
+        const u32 flags = CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW |
+                          CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F);
+        for (unsigned pass = 0; pass < 2; ++pass) {
+            u32 *window = pass ? headerData : dumpHeader;
+            if (normalChip) {
+                for (unsigned off = 0; off < 0x1000; off += 0x200)
+                    INIT_PARAM(CARD_CMD_HEADER_READ, off, flags | CARD_BLK_SIZE(1),
+                               window + off / sizeof(u32), 0x200 / sizeof(u32));
+            } else {
+                INIT_PARAM(CARD_CMD_HEADER_READ, 0, flags | CARD_BLK_SIZE(4),
+                           window, 0x1000 / sizeof(u32));
+            }
+        }
+        if (memcmp(dumpHeader, ndsHeader, CARD_NDS_HEADER_SIZE) ||
+            memcmp(dumpHeader, headerData, sizeof(headerData))) return CARD_INIT_ROM_READ;
+    }
+
+	if (!dumpHeader && (ndsHeader->unitCode != 0 || ndsHeader->dsi_flags != 0)) {
 		// Extended header found
 		if(normalChip) {
 			for(int i = 0; i < 8; i++) {
-				cardParamCommand (CARD_CMD_HEADER_READ, i * 0x200,
+				INIT_PARAM(CARD_CMD_HEADER_READ, i * 0x200,
 					CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
 					headerData + i * 0x200 / sizeof(u32), 0x200/sizeof(u32));
 			}
 		} else {
-			cardParamCommand (CARD_CMD_HEADER_READ, 0,
+			INIT_PARAM(CARD_CMD_HEADER_READ, 0,
 				CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(4) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
 				(void*)headerData, 0x1000/sizeof(u32));
 		}
@@ -417,16 +494,16 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 
 	// 3Ciiijjj xkkkkkxx - Activate KEY1 Encryption Mode
 	initKey1Encryption (cmdData, 0);
-	cardPolledTransfer((ndsHeader->cardControl13 & (CARD_WR|CARD_nRESET|CARD_CLK_SLOW)) | CARD_ACTIVATE, NULL, 0, cmdData);
+	INIT_TRANSFER((ndsHeader->cardControl13 & (CARD_WR|CARD_nRESET|CARD_CLK_SLOW)) | CARD_ACTIVATE, NULL, 0, cmdData);
 
 	// 4llllmmm nnnkkkkk - Activate KEY2 Encryption Mode
 	createEncryptedCommand (CARD_CMD_ACTIVATE_SEC, cmdData, 0);
 
 	if (normalChip) {
-		cardPolledTransfer(portFlagsKey1, NULL, 0, cmdData);
+		INIT_TRANSFER(portFlagsKey1, NULL, 0, cmdData);
 		cardDelay(ndsHeader->readTimeout);
 	}
-	cardPolledTransfer(portFlagsKey1, NULL, 0, cmdData);
+	INIT_TRANSFER(portFlagsKey1, NULL, 0, cmdData);
 
 	// Set the KEY2 encryption registers
 	REG_ROMCTRL = 0;
@@ -443,10 +520,10 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	createEncryptedCommand (CARD_CMD_SECURE_CHIPID, cmdData, 0);
 
 	if (normalChip) {
-		cardPolledTransfer(portFlagsKey1, NULL, 0, cmdData);
+		INIT_TRANSFER(portFlagsKey1, NULL, 0, cmdData);
 		cardDelay(ndsHeader->readTimeout);
 	}
-	cardPolledTransfer(portFlagsKey1 | CARD_BLK_SIZE(7), NULL, 0, cmdData);
+	INIT_TRANSFER(portFlagsKey1 | CARD_BLK_SIZE(7), NULL, 0, cmdData);
 
 	// 2bbbbiii jjjkkkkk - Get Secure Area Block
 	portFlagsSecRead = (ndsHeader->cardControlBF & (CARD_CLK_SLOW|CARD_DELAY1(0x1FFF)|CARD_DELAY2(0x3F)))
@@ -457,14 +534,14 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 		createEncryptedCommand (CARD_CMD_SECURE_READ, cmdData, secureBlockNumber);
 
 		if (normalChip) {
-			cardPolledTransfer(portFlagsSecRead, NULL, 0, cmdData);
+			INIT_TRANSFER(portFlagsSecRead, NULL, 0, cmdData);
 			cardDelay(ndsHeader->readTimeout);
 			for (i = 8; i > 0; i--) {
-				cardPolledTransfer(portFlagsSecRead | CARD_BLK_SIZE(1), secureArea + secureAreaOffset, 0x200, cmdData);
+				INIT_TRANSFER(portFlagsSecRead | CARD_BLK_SIZE(1), secureArea + secureAreaOffset, 0x200, cmdData);
 				secureAreaOffset += 0x200/sizeof(u32);
 			}
 		} else {
-			cardPolledTransfer(portFlagsSecRead | CARD_BLK_SIZE(4) | CARD_SEC_LARGE, secureArea + secureAreaOffset, 0x1000, cmdData);
+			INIT_TRANSFER(portFlagsSecRead | CARD_BLK_SIZE(4) | CARD_SEC_LARGE, secureArea + secureAreaOffset, 0x1000, cmdData);
 			secureAreaOffset += 0x1000/sizeof(u32);
 		}
 	}
@@ -473,10 +550,10 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	createEncryptedCommand (CARD_CMD_DATA_MODE, cmdData, 0);
 
 	if (normalChip) {
-		cardPolledTransfer(portFlagsKey1, NULL, 0, cmdData);
+		INIT_TRANSFER(portFlagsKey1, NULL, 0, cmdData);
 		cardDelay(ndsHeader->readTimeout);
     }
-	cardPolledTransfer(portFlagsKey1, NULL, 0, cmdData);
+	INIT_TRANSFER(portFlagsKey1, NULL, 0, cmdData);
 
     //CycloDS doesn't like the dsi secure area being decrypted
     if((ndsHeader->arm9romOffset != 0x4000) || secureArea[0] || secureArea[1]) {
@@ -505,6 +582,35 @@ ITCM_CODE u32 cardInit (sNDSHeaderExt* ndsHeader, bool SkipSlotReset) {
 	}
 
 	return ERR_NONE;
+}
+
+#undef INIT_PARAM
+#undef INIT_TRANSFER
+
+ITCM_CODE u32 cardInit(sNDSHeaderExt *header, bool skipSlotReset)
+{
+    return cardInitInternal(header, skipSlotReset, NULL);
+}
+
+u32 cardInitForRomDump(sNDSHeaderExt *header, u32 headerWindow[0x1000 / sizeof(u32)])
+{
+    return cardInitInternal(header, false, headerWindow);
+}
+
+bool cardReadDumpSector(u32 offset, u32 output[0x200 / sizeof(u32)])
+{
+    if ((offset & 0x1ff) || offset < 0x1000) return false;
+    if (offset < CARD_SECURE_AREA_OFFSET) {
+        memset(output, 0, 0x200);
+        return true;
+    }
+    if (offset < CARD_DATA_OFFSET) {
+        memcpy(output, (const u8 *)secureArea + offset - CARD_SECURE_AREA_OFFSET, 0x200);
+        return true;
+    }
+    return dumpParam(CARD_CMD_DATA_READ, offset,
+        portFlags | CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(1),
+        output, 0x200 / sizeof(u32));
 }
 
 ITCM_CODE u32 cardGetId() { return iCardId; }

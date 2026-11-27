@@ -25,6 +25,9 @@
 #include "file-browser.h"
 #include "button-legend.h"
 #include "gm9-bundle.h"
+extern "C" {
+#include "rom-dump-ui.h"
+}
 extern "C" const u8 usb_mount_bin[] __attribute__((weak));
 extern "C" const u8 usb_mount_bin_end[] __attribute__((weak));
 
@@ -749,7 +752,7 @@ static void DoUsbMount() {
 enum class MenuAction {
 	Back,
 	Utility, Dldi, FileBrowser,
-	DumpMain, DumpStage2, DumpUdisk, DumpBanner, TestDump,
+	DumpMain, DumpStage2, DumpUdisk, DumpBanner, DumpCartRom, TestDump,
 	BootCart, BootGm9, Usb,
 	CheckCart, SaveBlock0, Advanced, BuildUpdate,
 	PatchSafeMode, PatchMainMarker, BypassSafeMode, InstallBanner, RestoreArm7, RestoreBlock0, ReplaceSafeMode, RepairUdisk, UdiskSetup, QuickFormat, FullFormat,
@@ -1009,6 +1012,7 @@ static MenuAction MainMenu() {
 		{MenuAction::FileBrowser, "File Browser"},
 		{MenuAction::Utility, "Utility Menu"},
 		{MenuAction::DumpMain, "Dump main SRL", rawNandAvailable},
+		{MenuAction::DumpCartRom, "Dump cartridge ROM", RecoveryStorageRoot() != nullptr},
 		{MenuAction::DumpStage2, srlLayout.bootleg ? "Dump bootleg SRL" : "Dump Safe Mode SRL", srlLayout.stage2_table != 0},
 		{MenuAction::DumpUdisk, "Dump uDisk SRL", srlLayout.udisk_table != 0},
 		{MenuAction::DumpBanner, "Dump banner", rawNandAvailable},
@@ -1133,6 +1137,15 @@ int main(int argc, char **argv) {
 				else LoadTopScreenSplash();
 				break;
 			case MenuAction::DumpMain: DoNandDump("stage1.bin", STAGE1OFFSET, STAGE1SECTORCOUNT); break;
+            case MenuAction::DumpCartRom:
+                if (const char *root = RecoveryStorageRoot()) {
+                    nrio_rom_dump result;
+                    nrio_dump_cart_rom(root, true, &result);
+                    puts("\nA or B Back");
+                    do { swiWaitForVBlank(); scanKeys(); } while (!(keysDown() & (KEY_A | KEY_B)));
+                    RefreshSrlLayout();
+                }
+                break;
 			case MenuAction::DumpStage2:
 				DoNandDump(srlLayout.bootleg ? "bootleg.nds" : "safe-original.nds", srlLayout.stage2_table);
 				break;
