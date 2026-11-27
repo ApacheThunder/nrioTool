@@ -35,6 +35,7 @@ bool nrio_plan_cart_rom(const uint8_t header[512], struct nrio_cart_rom_plan *pl
     const uint32_t used = word(header + 0x80);
     plan->uses_declared_size = used >= required && used <= capacity;
     plan->capacity = capacity;
+    plan->minimum_bytes = required;
     plan->bytes = plan->uses_declared_size ? used : capacity;
     return true;
 }

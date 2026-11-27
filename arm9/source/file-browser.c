@@ -1,4 +1,5 @@
 #include <nds.h>
+#include <nds/arm9/dldi.h>
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -10,6 +11,9 @@
 #include <unistd.h>
 
 #include "button-legend.h"
+#include "cart-dldi.h"
+#include "cart-rom.h"
+#include "launch-check.h"
 #include "file-browser.h"
 #include "file-transfer.h"
 #include "name-editor.h"
@@ -193,11 +197,112 @@ static void update_picks(struct clipboard *clip, const char *old_path, const cha
     }
 }
 
-enum action { CANCEL, COPY, CUT, PASTE, CLEAR_CLIPBOARD, RENAME, DELETE };
+static bool nds_name(const char *name)
+{
+    const size_t n = strlen(name);
+    return n > 4 && !strcasecmp(name + n - 4, ".nds");
+}
+
+static bool check_sector(void *context, uint32_t sector, uint8_t bytes[512])
+{
+    const DISC_INTERFACE *io = context;
+    return io->readSectors(sector, 1, bytes);
+}
+
+static bool check_continue(void *unused)
+{
+    (void)unused;
+    scanKeys();
+    return !(keysDown() & KEY_B);
+}
+
+static void check_rom_file(const char *path, const struct volume *volume)
+{
+    enum { HEADER_SIZE = 512 };
+    FILE *f = fopen(path, "rb");
+    struct stat st;
+    static uint8_t chunk[NRIO_LAUNCH_CHUNK] __attribute__((aligned(4)));
+    if (!f || fstat(fileno(f), &st) || st.st_size < HEADER_SIZE ||
+        (uint64_t)st.st_size > UINT32_MAX || fread(chunk, 1, HEADER_SIZE, f) != HEADER_SIZE) {
+        if (f) fclose(f);
+        message("Could not read ROM header.");
+        return;
+    }
+    const uint32_t bytes = st.st_size;
+    const uint32_t chunks = (bytes - 1) / NRIO_LAUNCH_CHUNK + 1;
+    struct nrio_cart_rom_plan plan;
+    if (swiCRC16(0xffff, chunk, 0x15e) != (chunk[0x15e] | (uint16_t)chunk[0x15f] << 8) ||
+        !nrio_plan_cart_rom(chunk, &plan)) {
+        fclose(f);
+        message("DS ROM header is not valid\nor is not supported here.");
+        return;
+    }
+    if (bytes < plan.minimum_bytes || (plan.uses_declared_size && bytes < plan.bytes)) {
+        fclose(f);
+        message("File is shorter than ROM\nheader's used size.");
+        return;
+    }
+    if (chunks > NRIO_LAUNCH_MAX) {
+        fclose(f);
+        message("ROM exceeds the stock\n16,384-entry table.");
+        return;
+    }
+    consoleClear();
+    printf("Check ROM launch\n\n%lu of %u ROM map slots\n\nA Scan file  B Back\n",
+           (unsigned long)chunks, NRIO_LAUNCH_MAX);
+    if (!(input() & KEY_A)) { fclose(f); return; }
+    uint32_t done = 0;
+    bool ok = fseek(f, 0, SEEK_SET) == 0;
+    while (ok && done < chunks) {
+        if (!check_continue(NULL)) { fclose(f); message("ROM check cancelled."); return; }
+        if (!(done % 64)) {
+            consoleClear();
+            printf("Checking ROM file\n\nChunk %lu / %lu\n\nB Cancel", (unsigned long)done,
+                   (unsigned long)chunks);
+        }
+        const uint32_t left = bytes - done * NRIO_LAUNCH_CHUNK;
+        const unsigned n = left < sizeof(chunk) ? left : sizeof(chunk);
+        ok = fread(chunk, 1, n, f) == n;
+        if (ok) ++done;
+    }
+    if (fclose(f)) ok = false;
+    if (!ok) {
+        char error[80];
+        snprintf(error, sizeof(error), "ROM read failed at chunk %lu.", (unsigned long)done);
+        message(error);
+        return;
+    }
+
+    const DISC_INTERFACE *io = NULL;
+    if (!strcmp(volume->root, "cart:/")) io = nrioTool_mounted_cart_sectors();
+    else if (!strcmp(volume->label, "N-Card")) io = dldiGetInternal();
+    char report[160];
+    const char *chain_state = "FAT chain not checked here.";
+    char runs[48];
+    struct nrio_launch_chain chain;
+    if (io) {
+        enum nrio_launch_chain_result state = nrio_check_launch_chain(check_sector, check_continue,
+            (void *)io, st.st_ino, bytes, &chain);
+        if (state == NRIO_LAUNCH_CHAIN_CANCELLED) { message("ROM check cancelled."); return; }
+        chain_state = state == NRIO_LAUNCH_CHAIN_OK ? "Logical FAT chain checks out." :
+                      state == NRIO_LAUNCH_CHAIN_IO ? "FAT sector read failed." :
+                      state == NRIO_LAUNCH_CHAIN_INVALID ? "FAT chain length is invalid." :
+                      "FAT layout not supported.";
+        if (state == NRIO_LAUNCH_CHAIN_OK) {
+            snprintf(runs, sizeof(runs), "Logical FAT chain OK, %lu runs.", (unsigned long)chain.runs);
+            chain_state = runs;
+        }
+    }
+    snprintf(report, sizeof(report), "ROM file read OK (%lu chunks).\n%s\n\nPhysical map not checked.\nNothing launched or written.",
+             (unsigned long)chunks, chain_state);
+    message(report);
+}
+
+enum action { CANCEL, COPY, CUT, PASTE, CLEAR_CLIPBOARD, RENAME, DELETE, CHECK_LAUNCH };
 
 static enum action item_menu(const struct entry *item, const struct clipboard *clip, bool opened)
 {
-    struct action_item { enum action value; const char *label; } actions[6];
+    struct action_item { enum action value; const char *label; } actions[7];
     unsigned count = 0, selected = 0;
     bool marked = clip->count && clip->mode == PICKING;
     bool queued = clip->count && clip->mode != PICKING;
@@ -208,6 +313,8 @@ static enum action item_menu(const struct entry *item, const struct clipboard *c
     if (queued && opened) actions[count++] = (struct action_item){PASTE, "Paste here"};
     if (clip->count) actions[count++] = (struct action_item){CLEAR_CLIPBOARD,
                             queued ? "Cancel clipboard" : "Clear marks"};
+    if (item && !item->dir && nds_name(item->name))
+        actions[count++] = (struct action_item){CHECK_LAUNCH, "Check ROM launch"};
     if (item) {
         actions[count++] = (struct action_item){RENAME, "Rename"};
         actions[count++] = (struct action_item){DELETE, "Delete"};
@@ -584,6 +691,7 @@ static void browse(struct volume *volumes, unsigned count, const char *cart_prob
                     reload = true;
                     break;
                 }
+                case CHECK_LAUNCH: check_rom_file(path, &volumes[vol]); break;
                 case DELETE:
                     if (confirm(item->dir ? "Delete empty folder?" : "Delete file?", item->name)) {
                         if (item->dir ? rmdir(path) : unlink(path)) message("Could not delete. Folders\nmust be empty.");

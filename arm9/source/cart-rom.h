@@ -9,6 +9,7 @@ enum { NRIO_ROM_HEADER_BYTES = 0x1000, NRIO_ROM_COMPARE_BYTES = 64, NRIO_ROM_MAI
 struct nrio_cart_rom_plan {
     uint32_t bytes;
     uint32_t capacity;
+    uint32_t minimum_bytes;
     bool uses_declared_size;
 };
 

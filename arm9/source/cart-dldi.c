@@ -78,6 +78,11 @@ const DISC_INTERFACE *nrioTool_open_cart_sectors(bool writable)
     return NULL;
 }
 
+const DISC_INTERFACE *nrioTool_mounted_cart_sectors(void)
+{
+    return mounted && driver ? &driver->ioInterface : NULL;
+}
+
 void nrioTool_close_cart_sectors(void)
 {
     if (driver && !mounted) {

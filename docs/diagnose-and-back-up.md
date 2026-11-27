@@ -122,6 +122,16 @@ known ARM7 variant byte for byte. An alternate known variant is a
 conflict, not an instruction to overwrite it. A preview never stages a
 write or touches spare page 0.
 
+## Check a ROM file before launching elsewhere
+
+Select a `.nds` file in **File Browser**, then **X → Check ROM launch**.
+It checks the DS header, file length, the 16,384-entry limit of the stock
+ROM table, and readability in 16 KiB chunks. For a supported FAT16 or
+FAT32 N-Card volume it also checks the file's logical FAT chain and
+reports contiguous runs. The mounted DLDI interface does not expose
+physical NAND addresses. This is not a physical map preview, a
+compatibility guarantee, or a launcher.
+
 ## Check NAND health
 
 Press **Y** in Check Cart when the scan is available. It does not erase or program NAND. On independent storage it can save `NAND-HEALTH.TXT`. Marked blocks or repeat read errors help narrow down the issue. A clean read-only scan does not prove that a block will accept writes, and the scan does not remap anything.
