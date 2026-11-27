@@ -99,5 +99,7 @@ int main(void)
     assert(!nrio_open_cart_view(NRIO_RAW_MAIN_READ, &info));
     assert(nrio_cart_probe_result(&id) == NRIO_CART_PROBE_RETRY_NO_ID && id == UINT32_MAX);
     assert(starts == 2 && setup_calls == 1 && !reads);
+    nrio_cart_probe_forget();
+    assert(nrio_cart_probe_result(&id) == NRIO_CART_PROBE_NO_ID && id == 0);
     puts("Cart probe policy tests passed");
 }

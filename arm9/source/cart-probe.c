@@ -48,6 +48,12 @@ bool nrio_open_cart_view(enum nrio_raw_mode mode, struct nrio_raw_info *info)
     return false;
 }
 
+void nrio_cart_probe_forget(void)
+{
+    state = NRIO_CART_PROBE_NO_ID;
+    last_id = 0;
+}
+
 enum nrio_cart_probe_state nrio_cart_probe_result(uint32_t *id)
 {
     *id = last_id;

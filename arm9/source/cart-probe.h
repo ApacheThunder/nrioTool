@@ -13,6 +13,7 @@ enum nrio_cart_probe_state {
 };
 
 bool nrio_open_cart_view(enum nrio_raw_mode mode, struct nrio_raw_info *info);
+void nrio_cart_probe_forget(void);
 enum nrio_cart_probe_state nrio_cart_probe_result(uint32_t *id);
 
 #endif

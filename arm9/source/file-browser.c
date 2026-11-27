@@ -19,6 +19,7 @@
 #include "name-editor.h"
 #include "udisk-setup.h"
 #include "ui.h"
+#include "slot1-watch.h"
 
 enum { PATH_BYTES = 1024, LIST_ROWS = 10, MAX_ENTRIES = 2048 };
 struct volume { const char *root, *label; };
@@ -29,6 +30,7 @@ static uint32_t input(void)
 {
     for (;;) {
         swiWaitForVBlank();
+        if (nrio_slot1_changed()) return KEY_B;
         scanKeys();
         if (keysDown()) return keysDown();
     }
@@ -618,6 +620,7 @@ static void browse(struct volume *volumes, unsigned count, const char *cart_prob
         nrio_button_legend(count > 1 || cart_problem ? "L/R Drive  A Open  B Back" : "A Open   B Back",
                            queued ? "X Actions Y Paste START New" : "X Actions SEL Mark ST New");
         unsigned key = input();
+        if (nrio_slot1_changed()) break;
         if (key & KEY_B) {
             if (!strcmp(dir, volumes[vol].root)) break;
             parent(dir);

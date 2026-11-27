@@ -16,6 +16,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "../slot1-watch.h"
 #include "read_card.h"
 
 #include <nds.h>
@@ -210,9 +211,11 @@ static void switchToTwlBlowfish(sNDSHeaderExt* ndsHeader) {
 		// Reset card slot
 		disableSlot1();
 		for(int i = 0; i < 25; i++) { swiWaitForVBlank(); }
+		if (!nrio_slot1_allowed()) return;
 		enableSlot1();
 		for(int i = 0; i < 15; i++) { swiWaitForVBlank(); }
 
+		if (!nrio_slot1_allowed()) return;
 		// Dummy command sent after card reset
 		cardParamCommand (CARD_CMD_DUMMY, 0,
 			CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F),
@@ -357,17 +360,20 @@ static bool dumpParam(u8 command, u32 address, u32 flags, u32 *dest, u32 words)
 
 /* Keep existing boot transfers unchanged outside an explicit ROM capture. */
 #define INIT_TRANSFER(flags, dest, length, cmd) do {                         \
+    if (!nrio_slot1_allowed()) return CARD_INIT_ROM_READ;                  \
     if (!dumpHeader) cardPolledTransfer(flags, dest, length, cmd);            \
     else if (!dumpTransfer(flags, dest, (length) / sizeof(u32), cmd)) \
         return CARD_INIT_ROM_READ;                                          \
 } while (0)
 #define INIT_PARAM(cmd, address, flags, dest, words) do {                    \
+    if (!nrio_slot1_allowed()) return CARD_INIT_ROM_READ;                  \
     if (!dumpHeader) cardParamCommand(cmd, address, flags, dest, words);      \
     else if (!dumpParam(cmd, address, flags, dest, words))                   \
         return CARD_INIT_ROM_READ;                                          \
 } while (0)
 
 static ITCM_CODE u32 cardInitInternal(sNDSHeaderExt* ndsHeader, bool SkipSlotReset, u32 *dumpHeader) {
+	if (!nrio_slot1_allowed()) return 1;
 	u32 portFlagsKey1, portFlagsSecRead;
 	normalChip = false; // As defined by GBAtek, normal chip secure area and header are accessed in blocks of 0x200, other chip in blocks of 0x1000
 	nandChip = false;
@@ -384,8 +390,10 @@ static ITCM_CODE u32 cardInitInternal(sNDSHeaderExt* ndsHeader, bool SkipSlotRes
 		// Reset card slot
 		disableSlot1();
 		for(i = 0; i < 25; i++) { swiWaitForVBlank(); }
+		if (!nrio_slot1_allowed()) return 1;
 		enableSlot1();
 		for(i = 0; i < 15; i++) { swiWaitForVBlank(); }
+		if (!nrio_slot1_allowed()) return 1;
 		// Dummy command sent after card reset
 		INIT_PARAM(CARD_CMD_DUMMY, 0, CARD_ACTIVATE | CARD_nRESET | CARD_CLK_SLOW | CARD_BLK_SIZE(1) | CARD_DELAY1(0x1FFF) | CARD_DELAY2(0x3F), NULL, 0);
 	}
@@ -601,6 +609,7 @@ u32 cardInitForRomDump(sNDSHeaderExt *header, u32 headerWindow[0x1000 / sizeof(u
    exported image: the cartridge may remap these low B7 addresses. */
 bool cardReadEarlyB7(u32 offset, u32 output[0x200 / sizeof(u32)])
 {
+    if (!nrio_slot1_allowed()) return false;
     if (offset != 0x400 && offset != 0xc00 && offset != 0xe00) return false;
     return dumpParam(CARD_CMD_DATA_READ, offset,
         portFlags | CARD_ACTIVATE | CARD_nRESET | CARD_BLK_SIZE(1),
@@ -609,6 +618,7 @@ bool cardReadEarlyB7(u32 offset, u32 output[0x200 / sizeof(u32)])
 
 bool cardReadDumpSector(u32 offset, u32 output[0x200 / sizeof(u32)])
 {
+    if (!nrio_slot1_allowed()) return false;
     if ((offset & 0x1ff) || offset < 0x1000) return false;
     if (offset < CARD_SECURE_AREA_OFFSET) {
         memset(output, 0, 0x200);

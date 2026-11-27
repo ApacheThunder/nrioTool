@@ -155,3 +155,17 @@ fingerprint, the directory signature, and a valid OS block map.
 With independent storage available, **Dump FireLine OS** in the main
 menu saves the mapped image with its padding as `nrioFiles/fireline-os.nds`.
 This check does not enable legacy formatting or installation.
+
+## Swap carts on DSi
+
+When nrioTool is running in DSi mode with access to the Slot-1 status
+register, it detects removal and insertion without rebooting. Swap carts
+while idle. The menus drop the old cart's state, and nrioTool probes the
+new one without remounting DSi SD. Reopen File Browser to mount the new
+cart. DS mode and launchers that lock the status register do not use
+automatic detection.
+
+Removing a cart during a confirmation cancels the pending write. Never
+intentionally remove it while formatting or writing. If a write is
+interrupted, the old cart may still need repair. nrioTool does not resume
+an interrupted cart operation on the replacement.

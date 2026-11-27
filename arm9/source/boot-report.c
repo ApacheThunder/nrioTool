@@ -9,6 +9,7 @@
 #include <sys/statvfs.h>
 
 #include "boot-report.h"
+#include "slot1-watch.h"
 #include "fireline-layout.h"
 #include "boot-spare.h"
 #include "cart-probe.h"
@@ -48,6 +49,12 @@ static void line(struct report_page *p, const char *fmt, ...)
 
 static bool rom_probe_known;
 static uint32_t last_rom_status;
+
+void nrio_forget_rom_probe(void)
+{
+    rom_probe_known = false;
+    last_rom_status = 0;
+}
 
 void nrio_note_rom_probe(uint32_t status)
 {
@@ -219,6 +226,7 @@ static enum nrio_report_action show_report(const struct report_page *pages, bool
                              : scan_available ? "Y Scan  SEL 4GiB" : "SEL 4GiB probe");
         for (;;) {
             swiWaitForVBlank();
+            if (nrio_slot1_changed()) return NRIO_REPORT_BACK;
             scanKeys();
             unsigned key = keysDown();
             if (key & (KEY_A | KEY_B)) return NRIO_REPORT_BACK;

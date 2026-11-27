@@ -9,6 +9,7 @@
 
 #include <nds.h>
 
+#include "slot1-watch.h"
 #include "region-recovery.h"
 #include "boot-report.h"
 #include "fireline-layout.h"
@@ -317,6 +318,7 @@ bool nrio_confirm_write(void)
          "B: cancel");
     for (;;) {
         swiWaitForVBlank();
+        if (nrio_slot1_changed()) return false;
         scanKeys();
         uint32_t down = keysDown();
         if (down & KEY_B) return false;
@@ -333,6 +335,7 @@ bool nrio_confirm_padding_erase(void)
          "A: allow   B: cancel");
     for (;;) {
         swiWaitForVBlank();
+        if (nrio_slot1_changed()) return false;
         scanKeys();
         uint32_t down = keysDown();
         if (down & KEY_B) return false;

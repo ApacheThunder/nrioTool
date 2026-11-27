@@ -2,6 +2,7 @@
 #include <nds/card.h>
 
 #include "nrio_card.h"
+#include "slot1-watch.h"
 
 enum { TRANSFER_POLL_LIMIT = 2000000 };
 
@@ -15,7 +16,7 @@ static bool wait_for_idle(void)
 
 static bool send_setup_command(u8 command, u32 address, u32 flags)
 {
-    if (!wait_for_idle()) return false;
+    if (!nrio_slot1_allowed() || !wait_for_idle() || !nrio_slot1_allowed()) return false;
     const u8 frame[8] = {0, 0, 0, (u8)address, (u8)(address >> 8),
                          (u8)(address >> 16), (u8)(address >> 24), command};
     cardWriteCommand(frame);

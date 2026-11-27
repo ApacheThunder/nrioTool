@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
+#include "slot1-watch.h"
 #include "region-recovery.h"
 #include "bundle-assets.h"
 #include "recovery_nand/raw_nand.h"
@@ -261,6 +262,7 @@ bool nrio_udisk_confirm(void)
 {
     for (;;) {
         swiWaitForVBlank();
+        if (nrio_slot1_changed()) return false;
         scanKeys();
         if (keysDown() & KEY_B) return false;
         if ((keysDown() & KEY_A) &&

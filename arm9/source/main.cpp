@@ -22,11 +22,14 @@
 #include "launch_engine.h"
 #include "srl-dump.h"
 #include "slot2-usb.h"
+#include "slot1-watch.h"
+#include "udisk-setup.h"
 #include "file-browser.h"
 #include "button-legend.h"
 #include "gm9-bundle.h"
 extern "C" {
 #include "boot-report.h"
+#include "cart-probe.h"
 #include "rom-dump-ui.h"
 }
 extern "C" const u8 usb_mount_bin[] __attribute__((weak));
@@ -152,6 +155,7 @@ void DoError(const char* Message, bool isFatal = true) {
 }
 
 u32 CardInit(bool Silent = true, bool SkipSlotReset = false) {
+	if (!nrio_slot1_allowed()) return 1;
 	if (!Silent || !wasDSi)consoleClear();
 	DoWait(30);
 	if (!wasDSi) {
@@ -173,6 +177,7 @@ u32 CardInit(bool Silent = true, bool SkipSlotReset = false) {
 			if(keysDown() & KEY_A)break;
 		}
 	}
+	if (!nrio_slot1_allowed()) return 1;
 	const u32 status = cardInit((sNDSHeaderExt*)cartHeader, SkipSlotReset);
 	nrio_note_rom_probe(status);
 	if (status) return status;
@@ -621,9 +626,38 @@ void DoTestDump() {
 
 static void RefreshSrlLayout() {
 	nrio_raw_info info;
-	rawNandAvailable = nrio_srl_open(&info);
+	rawNandAvailable = nrio_slot1_allowed() && nrio_srl_open(&info);
 	srlLayout = rawNandAvailable ? nrio_srl_detect(info.sectors) : nrio_srl_layout{};
 	nrio_recovery_shutdown();
+}
+
+static void ServiceSlot1Change() {
+	bool inserted;
+	if (!nrio_slot1_changed()) return;
+	// Leave the latch set until after the old mount has been discarded.
+	nrioTool_unmount_setup_cart();
+	if (!nrio_slot1_take_change(&inserted)) return;
+	nrio_recovery_shutdown();
+	rawNandAvailable = false;
+	srlLayout = nrio_srl_layout{};
+	gameTitle[0] = 0;
+	cartSize = 0;
+	BlockTableSize = 0;
+	nrio_forget_rom_probe();
+	nrio_cart_probe_forget();
+	if (inserted && nrio_slot1_allowed()) {
+		const u32 status = CardInit();
+		if (nrio_slot1_allowed()) RefreshSrlLayout();
+		WarningPosted = status || !rawNandAvailable;
+		LoadTopScreen(WarningPosted || debugMode);
+		consoleClearTop(false);
+		if (!rawNandAvailable) PrintToTop("New cart: NAND not ready.\n", -1, false);
+		else if (status) PrintToTop("New cart: raw NAND available.\n", -1, false);
+	} else {
+		WarningPosted = true;
+		LoadTopScreen(true);
+		PrintToTop("Cart removed.\nInsert another N-Card.\n", -1, true);
+	}
 }
 
 static void DoNandDump(const char *name, u32 address, u32 directSectors = 0, bool padBanner = false) {
@@ -635,6 +669,7 @@ static void DoNandDump(const char *name, u32 address, u32 directSectors = 0, boo
 	puts("A Continue  B Back");
 	for (;;) {
 		swiWaitForVBlank();
+		if (nrio_slot1_changed()) return;
 		scanKeys();
 		const u32 keys = keysDown();
 		if (keys & KEY_B) return;
@@ -723,7 +758,6 @@ static void DoNandDump(const char *name, u32 address, u32 directSectors = 0, boo
 extern "C" void nrioTool_sd_recovery(int action, const char *root);
 extern "C" void nrioTool_export_recovery(const char *root);
 extern "C" bool nrioTool_c1_read_test(const char *root);
-#include "udisk-setup.h"
 #include "format-origin.h"
 #include "sector-zero.h"
 
@@ -754,7 +788,7 @@ static void DoUsbMount() {
 }
 
 enum class MenuAction {
-	Back,
+	Back, CartChanged,
 	Utility, Dldi, FileBrowser,
 	DumpMain, DumpStage2, DumpUdisk, DumpFireline, DumpBanner, DumpCartRom, TestDump,
 	BootCart, BootGm9, Usb,
@@ -815,6 +849,7 @@ static MenuAction PickAction(const char *title, const MenuItem (&items)[count], 
 		}
 
 		swiWaitForVBlank();
+		if (nrio_slot1_changed()) return MenuAction::CartChanged;
 		scanKeys();
 		const u32 keys = keysDown();
 		if (keys & KEY_B) return MenuAction::Back;
@@ -912,6 +947,7 @@ static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
 	LoadTopScreen(WarningPosted || debugMode);
 	const bool recoveryOnly = startupRecoveryRoot != nullptr;
 	while (!ErrorState) {
+		if (recoveryOnly) ServiceSlot1Change();
 		const bool recoveryAvailable = recoveryOnly || RecoveryStorageRoot() != nullptr;
 		const bool dsiToolsAvailable = wasDSi && !recoveryOnly;
 		const MenuItem items[] = {
@@ -920,12 +956,15 @@ static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
 			{MenuAction::CheckCart, "Check Cart"},
 			{MenuAction::ExportRecovery, "Export recovery bundle", recoveryAvailable},
 			{MenuAction::CompareC1, "Compare C1 NAND reads", recoveryAvailable},
-			{MenuAction::BootCart, "Boot Cart", dsiToolsAvailable},
+			{MenuAction::BootCart, "Boot Cart", dsiToolsAvailable && nrio_slot1_allowed()},
 			{MenuAction::BootGm9, "Boot GodMode9Nrio", dsiToolsAvailable},
 			{MenuAction::BuildUpdate, "Build Update File", !recoveryOnly},
 			{MenuAction::Usb, "Mount USB drive", UsbMountAvailable()},
 		};
 		switch (PickAction("Utility Menu", items, recoveryOnly)) {
+			case MenuAction::CartChanged:
+				if (recoveryOnly) continue;
+				return;
 			case MenuAction::Advanced:
 				RunAdvancedMenu(startupRecoveryRoot);
 				LoadTopScreen(WarningPosted || debugMode);
@@ -959,7 +998,7 @@ static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
 }
 
 static void RunStorageRecoveryMenu(const char *root) {
-	if (SCFGUnlocked) enableSlot1();
+	if (SCFGUnlocked && nrio_slot1_allowed()) enableSlot1();
 	if (access(root, F_OK) != 0) mkdir(root, 0777);
 	RunUtilityMenu(root);
 }
@@ -973,6 +1012,7 @@ static bool PrepareDldiAction() {
 	nrio_button_legend("A Continue  B Cancel", nullptr);
 	for (;;) {
 		swiWaitForVBlank();
+		if (!nrio_slot1_allowed()) return false;
 		scanKeys();
 		const u32 keys = keysDown();
 		if (keys & KEY_B) return false;
@@ -1002,6 +1042,10 @@ static void RunDldiMenu() {
 	};
 	while (!ErrorState) {
 		const MenuAction action = PickAction("DLDI Menu", items, ntrMode);
+		if (action == MenuAction::CartChanged) {
+			if (ntrMode) ErrorState = true;
+			return;
+		}
 		if (action == MenuAction::Back) {
 			if (ntrMode) ErrorState = true;
 			return;
@@ -1040,6 +1084,7 @@ static MenuAction MainMenu() {
 }
 
 void vblankHandler (void) {
+	nrio_slot1_watch_vblank();
 	if (UpdateProgressText) {
 		if (TopSelected) {
 			SelectBotConsole();
@@ -1070,6 +1115,8 @@ int main(int argc, char **argv) {
 	if (wasDSi && (REG_SCFG_EXT & BIT(31)))SCFGUnlocked = true;
 	defaultExceptionHandler();
 	BootSplashInit();
+	nrio_slot1_watch_start(wasDSi && SCFGUnlocked);
+	irqSet(IRQ_VBLANK, vblankHandler);
 	if (usbOnly) {
 		DoUsbMount();
 		fifoSendValue32(FIFO_USER_03, 1);
@@ -1088,7 +1135,7 @@ int main(int argc, char **argv) {
 		if (wasDSi || GetSlot2Storage()) MountFATDevices();
 		if (const char *root = RecoveryStorageRoot()) RunStorageRecoveryMenu(root);
 		else {
-			if (SCFGUnlocked) enableSlot1();
+			if (SCFGUnlocked && nrio_slot1_allowed()) enableSlot1();
 			RunUdiskSetupMenu(nullptr);
 		}
 		fifoSendValue32(FIFO_USER_03, 1);
@@ -1129,8 +1176,6 @@ int main(int argc, char **argv) {
 	if (rawNandAvailable && cardStatus)
 		PrintToTop("Raw NAND available.\n", -1, false);
 	if (autoBootCart && !cardStatus) { SetSCFG(); DoCartBoot(); }
-	// Enable vblank handler
-	irqSet(IRQ_VBLANK, vblankHandler);
 	
 	if (wasDSi) { if(access("sd:/nrioFiles", F_OK) != 0)mkdir("sd:/nrioFiles", 0777); } else { if(access("fat:/nrioFiles", F_OK) != 0)mkdir("fat:/nrioFiles", 0777); }
 	
@@ -1141,7 +1186,9 @@ int main(int argc, char **argv) {
 			if (!isDSiMode())systemShutDown();
 			return 0;
 		}
+		ServiceSlot1Change();
 		switch (MainMenu()) {
+			case MenuAction::CartChanged: continue;
             case MenuAction::FileBrowser:
                 nrio_file_browser(wasDSi && sdMounted, !wasDSi && fatMounted && GetSlot2Storage(),
                                   !wasDSi && fatMounted && !GetSlot2Storage());
@@ -1150,7 +1197,7 @@ int main(int argc, char **argv) {
                 break;
 			case MenuAction::Utility:
 				RunUtilityMenu();
-				if (!ErrorState) RefreshSrlLayout();
+				if (!ErrorState && nrio_slot1_allowed()) RefreshSrlLayout();
 				if (WarningPosted) LoadTopScreen(true);
 				else LoadTopScreen(false);
 				break;

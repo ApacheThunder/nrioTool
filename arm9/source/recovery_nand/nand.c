@@ -1,4 +1,5 @@
 #include "raw_nand.h"
+#include "../slot1-watch.h"
 
 #ifndef REG_ROMCTRL
 // Register spellings used by the libnds shipped with devkitARM r20.
@@ -18,6 +19,7 @@ enum {
 static bool wait_ready(void)
 {
     for (u32 i = 0; i < POLL_LIMIT; ++i) {
+        if (!(i & 1023) && !nrio_slot1_allowed()) return false;
         u32 status = REG_ROMCTRL;
         if (status & CARD_DATA_READY) {
             return true;
@@ -32,6 +34,7 @@ static bool wait_ready(void)
 static bool wait_idle(void)
 {
     for (u32 i = 0; i < POLL_LIMIT; ++i) {
+        if (!(i & 1023) && !nrio_slot1_allowed()) return false;
         if (!(REG_ROMCTRL & (u32)CARD_BUSY)) {
             return true;
         }
@@ -62,6 +65,7 @@ static void frame(u8 first, u8 second, u32 address, u8 extra)
 
 static bool command_word(u32 control, u32 *reply)
 {
+    if (!nrio_slot1_allowed()) return false;
     REG_ROMCTRL = control;
     return receive_word(reply) && wait_idle();
 }
@@ -97,6 +101,7 @@ static bool wait_nand(void)
 
 bool nand_read_probe_id(u32 *id)
 {
+    if (!nrio_slot1_allowed()) return false;
     u32 reply;
     REG_AUXSPICNTH = CARD_SPICNTH_ENABLE | CARD_SPICNTH_IRQ;
     if (!wait_idle()) {
@@ -142,6 +147,7 @@ bool nand_read_sector(u32 column, u8 *buffer)
 
     REG_CARD_COMMAND[0] = 0xd0;
     REG_CARD_COMMAND[1] = 0;
+    if (!nrio_slot1_allowed()) return false;
     REG_ROMCTRL = 0xa1000000;
     for (u32 i = 0; i < SECTOR_SIZE; i += 4) {
         u32 word;
@@ -188,11 +194,10 @@ static bool send_sector(const u8 *data)
     REG_CARD_COMMAND[0] = 0xd3;
     REG_CARD_COMMAND[1] = 0;
     REG_CARD_COMMAND[7] = data[0];
+    if (!nrio_slot1_allowed()) return false;
     REG_ROMCTRL = 0xe1000008;
     for (u32 i = 1; i <= SECTOR_SIZE; i += 4) {
-        if (!wait_ready()) {
-            return false;
-        }
+        if (!nrio_slot1_allowed() || !wait_ready()) return false;
         // The bridge takes the first byte in the frame and then 128 FIFO words.
         // The last word uses one lookahead byte from the page record.
         REG_CARD_DATA_RD = (u32)data[i] | ((u32)data[i + 1] << 8) |

@@ -7,10 +7,39 @@
 
 #include "bundle-assets.h"
 #include "cart-dldi.h"
+#include "slot1-watch.h"
 #include "udisk-setup.h"
 
 static DLDI_INTERFACE *driver;
 static bool mounted;
+
+/* libfat and direct sector users share these guarded entry points.
+   No old mount can issue I/O after eject, even if the next cart is present. */
+static DISC_INTERFACE guarded;
+static bool guarded_startup(void)
+{
+    return driver && nrio_slot1_allowed() && driver->ioInterface.startup();
+}
+static bool guarded_inserted(void)
+{
+    return driver && nrio_slot1_allowed() && driver->ioInterface.isInserted();
+}
+static bool guarded_read(sec_t sector, sec_t count, void *data)
+{
+    return driver && nrio_slot1_allowed() && driver->ioInterface.readSectors(sector, count, data);
+}
+static bool guarded_write(sec_t sector, sec_t count, const void *data)
+{
+    return driver && nrio_slot1_allowed() && driver->ioInterface.writeSectors(sector, count, data);
+}
+static bool guarded_clear(void)
+{
+    return driver && nrio_slot1_allowed() && driver->ioInterface.clearStatus();
+}
+static bool guarded_shutdown(void)
+{
+    return !driver || !nrio_slot1_allowed() || driver->ioInterface.shutdown();
+}
 
 static bool reject_write(sec_t sector, sec_t count, const void *data)
 {
@@ -22,7 +51,7 @@ static bool reject_write(sec_t sector, sec_t count, const void *data)
 
 static bool load_driver(bool read_only)
 {
-    if (driver) return false;
+    if (driver || !nrio_slot1_allowed()) return false;
     enum { DRIVER_BYTES = 0x8000 };
     const unsigned asset = NRIO_ASSET_DLDI;
     size_t length;
@@ -54,6 +83,13 @@ static bool load_driver(bool read_only)
         driver->ioInterface.features &= ~FEATURE_MEDIUM_CANWRITE;
         driver->ioInterface.writeSectors = reject_write;
     }
+    guarded = driver->ioInterface;
+    guarded.startup = guarded_startup;
+    guarded.isInserted = guarded_inserted;
+    guarded.readSectors = guarded_read;
+    guarded.writeSectors = guarded_write;
+    guarded.clearStatus = guarded_clear;
+    guarded.shutdown = guarded_shutdown;
     DC_FlushRange(driver, DRIVER_BYTES);
     IC_InvalidateAll();
     sysSetCardOwner(BUS_OWNER_ARM9);
@@ -63,7 +99,7 @@ static bool load_driver(bool read_only)
 static bool mount_cart(bool read_only)
 {
     if (!load_driver(read_only)) return false;
-    mounted = fatMountSimple("cart", &driver->ioInterface);
+    mounted = fatMountSimple("cart", &guarded);
     if (mounted) return true;
     nrioTool_unmount_setup_cart();
     return false;
@@ -72,7 +108,7 @@ static bool mount_cart(bool read_only)
 const DISC_INTERFACE *nrioTool_open_cart_sectors(bool writable)
 {
     if (!load_driver(!writable)) return NULL;
-    const DISC_INTERFACE *io = &driver->ioInterface;
+    const DISC_INTERFACE *io = &guarded;
     if (io->startup()) return io;
     nrioTool_unmount_setup_cart();
     return NULL;
@@ -80,13 +116,13 @@ const DISC_INTERFACE *nrioTool_open_cart_sectors(bool writable)
 
 const DISC_INTERFACE *nrioTool_mounted_cart_sectors(void)
 {
-    return mounted && driver ? &driver->ioInterface : NULL;
+    return mounted && driver ? &guarded : NULL;
 }
 
 void nrioTool_close_cart_sectors(void)
 {
     if (driver && !mounted) {
-        driver->ioInterface.shutdown();
+        guarded_shutdown();
         nrioTool_unmount_setup_cart();
     }
 }
