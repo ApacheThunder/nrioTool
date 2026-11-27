@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include "recovery_nand/recovery.h"
+#include "fireline-layout.h"
 
 #define NRIO_SRL_MAP_BLOCK 0x4000u
 #define NRIO_SRL_MAP_ENTRIES (NRIO_RAW_TABLE_BYTES / 4)
@@ -13,7 +14,7 @@ extern "C" {
 struct nrio_srl_layout {
     uint32_t stage2_table;
     uint32_t udisk_table;
-    bool bootleg;
+    bool bootleg, fireline;
 };
 
 bool nrio_srl_open(struct nrio_raw_info *info);

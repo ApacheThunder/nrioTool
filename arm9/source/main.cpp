@@ -756,7 +756,7 @@ static void DoUsbMount() {
 enum class MenuAction {
 	Back,
 	Utility, Dldi, FileBrowser,
-	DumpMain, DumpStage2, DumpUdisk, DumpBanner, DumpCartRom, TestDump,
+	DumpMain, DumpStage2, DumpUdisk, DumpFireline, DumpBanner, DumpCartRom, TestDump,
 	BootCart, BootGm9, Usb,
 	CheckCart, ExportRecovery, CompareC1, SaveBlock0, Advanced, BuildUpdate,
 	PatchSafeMode, PatchMainMarker, BypassSafeMode, InstallBanner, RestoreArm7, RestoreBlock0, ReplaceSafeMode, RepairUdisk, UdiskSetup, QuickFormat, FullFormat,
@@ -1029,6 +1029,7 @@ static MenuAction MainMenu() {
 		{MenuAction::DumpCartRom, "Dump cartridge ROM", RecoveryStorageRoot() != nullptr},
 		{MenuAction::DumpStage2, srlLayout.bootleg ? "Dump bootleg SRL" : "Dump Safe Mode SRL", srlLayout.stage2_table != 0},
 		{MenuAction::DumpUdisk, "Dump uDisk SRL", srlLayout.udisk_table != 0},
+		{MenuAction::DumpFireline, "Dump FireLine OS", srlLayout.fireline && RecoveryStorageRoot()},
 		{MenuAction::DumpBanner, "Dump banner", rawNandAvailable},
 		{MenuAction::TestDump, "Test NAND dump"},
 	};
@@ -1164,6 +1165,7 @@ int main(int argc, char **argv) {
 				DoNandDump(srlLayout.bootleg ? "bootleg.nds" : "safe-original.nds", srlLayout.stage2_table);
 				break;
 			case MenuAction::DumpUdisk: DoNandDump("udisk.nds", srlLayout.udisk_table); break;
+			case MenuAction::DumpFireline: DoNandDump("fireline-os.nds", NRIO_FIRELINE_OS_MAP); break;
 			case MenuAction::DumpBanner:
 				DoNandDump("banner.bin", NRIO_RAW_BANNER_OFFSET, NRIO_RAW_BANNER_BYTES / SECTOR_SIZE, /*padBanner=*/true);
 				break;

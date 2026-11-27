@@ -11,6 +11,7 @@
 
 #include "region-recovery.h"
 #include "boot-report.h"
+#include "fireline-layout.h"
 #include "boot-spare.h"
 #include "c1-diagnostics.h"
 #include "cart-probe.h"
@@ -634,6 +635,34 @@ static bool capture_spare_comparison(const char *directory, struct nrio_rom_spar
     return true;
 }
 
+static bool capture_read_sector(void *context, uint32_t lba, uint8_t *data)
+{
+    (void)context;
+    return nrio_recovery_read(lba, 1, data);
+}
+
+static unsigned save_fireline_capture(const char *directory,
+                                      const struct nrio_fireline_layout *layout)
+{
+    static const char *const names[] = {
+        "OS-MAP.BIN", "DIR-MAP.BIN", "OS-HEAD.BIN", "DIR-HEAD.BIN",
+    };
+    unsigned saved = 0;
+    for (unsigned i = 0; i < NRIO_FIRELINE_CAPTURE_SECTORS; ++i) {
+        if (!(layout->present & (1u << i))) continue;
+        char path[64], temporary[72];
+        snprintf(path, sizeof(path), "%s/%s", directory, names[i]);
+        snprintf(temporary, sizeof(temporary), "%s.part", path);
+        FILE *file = fopen(temporary, "wb");
+        if (!file) continue;
+        bool ok = fwrite(layout->sectors[i], 1, SECTOR, file) == SECTOR;
+        if (fclose(file)) ok = false;
+        if (ok && rename(temporary, path) == 0) saved |= 1u << i;
+        else remove(temporary);
+    }
+    return saved;
+}
+
 void nrioTool_export_recovery(const char *root)
 {
     char directory[40], path[64];
@@ -649,6 +678,10 @@ void nrioTool_export_recovery(const char *root)
     const bool detected = select_view(NRIO_RAW_MAIN_READ, &info);
     const bool saved_block = detected && save_backup(directory, false, &info);
     const bool still_detected = select_view(NRIO_RAW_MAIN_READ, &info);
+    struct nrio_fireline_layout fireline = {0};
+    if (still_detected)
+        nrio_fireline_inspect(capture_read_sector, NULL, info.sectors, &fireline);
+    const unsigned saved_maps = save_fireline_capture(directory, &fireline);
     const bool saved_report = nrio_boot_report(directory, still_detected ? &info : NULL, true)
                               != NRIO_REPORT_SAVE_FAILED;
     nrio_recovery_shutdown();
@@ -674,6 +707,10 @@ void nrioTool_export_recovery(const char *root)
         fprintf(log, "N-Card recovery capture (read-only)\nBlock 0: %s\nCheck Cart: %s\nROM: %s\n",
                 saved_block ? "saved" : "not saved", saved_report ? "saved" : "not saved",
                 saved_rom ? "saved" : tried_rom ? "stopped or cancelled" : "skipped");
+        fprintf(log, "Legacy maps/headers captured (mask): %X.\n"
+                     "OS pointer %08lX (%s). Directory pointer %08lX (%s).\n",
+                saved_maps, (unsigned long)fireline.os_address, fireline.known_os ? "match" : "unconfirmed",
+                (unsigned long)fireline.dir_address, fireline.known_dir ? "match" : "unconfirmed");
         if (saved_rom) {
             fprintf(log, "ROM bytes: %lu (%s)\nROM CRC32: %08lX\nROM chip ID: %08lX\n",
                     (unsigned long)rom.bytes, rom.uses_declared_size ? "used size" : "header capacity",
@@ -722,6 +759,7 @@ void nrioTool_export_recovery(const char *root)
     printf("Capture %s\n\n", strrchr(directory, '/') + 1);
     printf("Block 0: %s\nCheck Cart: %s\nROM: %s\n", saved_block ? "saved" : "not saved",
            saved_report ? "saved" : "not saved", saved_rom ? "saved" : tried_rom ? "not saved" : "skipped");
+    if (saved_maps) puts("Legacy map sectors saved.");
     if (!saved_log) puts("Could not save CAPTURE.TXT.");
     if (compared) printf("ROM/spare match: %u/64 bytes.\n", comparison.matches);
     if (compared && arm7.result == NRIO_ARM7_PREVIEW_CANDIDATE)

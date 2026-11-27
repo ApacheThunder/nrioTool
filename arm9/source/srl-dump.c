@@ -37,6 +37,8 @@ bool nrio_srl_open(struct nrio_raw_info *info)
     return false;
 }
 
+static bool read_srl_sector(void *context, uint32_t lba, uint8_t sector[SECTOR]);
+
 struct nrio_srl_layout nrio_srl_detect(uint32_t sectors)
 {
     struct nrio_srl_layout layout = {0};
@@ -51,6 +53,9 @@ struct nrio_srl_layout nrio_srl_detect(uint32_t sectors)
         }
         if (secondary && !layout.bootleg) layout.udisk_table = NRIO_RAW_SECONDARY_TABLE;
     }
+    struct nrio_fireline_layout fireline;
+    nrio_fireline_inspect(read_srl_sector, NULL, sectors, &fireline);
+    layout.fireline = fireline.dumpable;
     return layout;
 }
 
@@ -70,6 +75,14 @@ bool nrio_srl_plan(uint32_t table, uint32_t sectors,
                    uint32_t addresses[NRIO_SRL_MAP_ENTRIES], uint32_t *blocks)
 {
     uint8_t data[SECTOR];
+    if (table == NRIO_FIRELINE_OS_MAP) {
+        struct nrio_fireline_layout fireline;
+        nrio_fireline_inspect(read_srl_sector, NULL, sectors, &fireline);
+        if (!fireline.dumpable) return false;
+        *blocks = NRIO_FIRELINE_OS_BLOCKS;
+        for (uint32_t i = 0; i < *blocks; ++i) addresses[i] = nrio_fireline_block(&fireline, i);
+        return true;
+    }
     if (table != NRIO_RAW_PRIMARY_TABLE && table != NRIO_RAW_SECONDARY_TABLE) return false;
     uint32_t first = first_address(table, sectors);
     if (!first || !nrio_recovery_read(first / SECTOR, 1, data)) return false;

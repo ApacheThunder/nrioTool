@@ -9,6 +9,7 @@
 #include <sys/statvfs.h>
 
 #include "boot-report.h"
+#include "fireline-layout.h"
 #include "boot-spare.h"
 #include "cart-probe.h"
 #include "bundle-assets.h"
@@ -372,6 +373,16 @@ enum nrio_report_action nrio_boot_report(const char *root, const struct nrio_raw
         }
     }
     line(boot, "%s", version);
+    struct nrio_fireline_layout fireline;
+    nrio_fireline_inspect(read_sector, NULL, info->sectors, &fireline);
+    if (fireline.dumpable)
+        line(boot, "FireLine OS at %08lX", (unsigned long)fireline.os_address);
+    else if (fireline.known_os || fireline.known_dir)
+        line(boot, "FireLine map inconclusive.");
+    else if (first.kind == NRIO_BOOT_DIRECT_DS || game_marker)
+        line(boot, "Direct-boot DS layout.");
+    line(survivors, "Legacy OS map %s", fireline.known_os ? "matched" : "unconfirmed");
+    line(survivors, "Legacy directory %s", fireline.known_dir ? "matched" : "unconfirmed");
 
     line(survivors, "Read twice, standard CRC32");
     if (erase_pages == 64)
