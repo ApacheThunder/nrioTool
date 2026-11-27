@@ -22,11 +22,12 @@ operation supports its hardware or current boot layout.
 ## Start here
 
 If you’re not sure what went wrong, open **Utility Menu → Check Cart** first.
-It can check the NAND, boot tables, and filesystem without writing to the cart.
+It checks the NAND, boot spare records, boot tables, and filesystem without writing to the cart.
 
 | What you want to do | Guide |
 | --- | --- |
 | Find out why the cart won’t boot, check NAND health, or make a backup | [Diagnose and back up a cart](docs/diagnose-and-back-up.md) |
+| Save a ROM dump, block-0 backup, and diagnostics together | [Export a recovery bundle](docs/diagnose-and-back-up.md#export-a-recovery-bundle) |
 | Recover a white-screening or bricked cart, with or without a backup | [Recover a cart that won’t boot](docs/recover-a-bricked-cart.md) |
 | Fix safe mode for DSi, replace a safe-mode ROM, or undo a bypass | [Patch, replace, or bypass safe mode](docs/safe-mode.md) |
 | Update stock uDisk, install XuluMenu, or rebuild the filesystem | [Update, format, and set up a cart](docs/update-and-format.md) |

@@ -2,7 +2,7 @@
 
 [Back to the nrioTool README](../README.md)
 
-Start nrioTool from the DSi SD card or writable Slot-2 storage. Hold **L** if the target prevents normal startup. Run [Check Cart](diagnose-and-back-up.md) and keep the latest report. If the NAND probe works, back up what’s on the cart now, even if it’s already damaged.
+Start nrioTool from the DSi SD card or writable Slot-2 storage. Hold **L** if the target prevents normal startup. Run [Check Cart](diagnose-and-back-up.md) and keep the latest report. Before choosing a repair, [export a recovery bundle](diagnose-and-back-up.md#export-a-recovery-bundle) to save the report and back up whatever block-0 data is still readable. The ROM dump is optional. Skip it if the cart can’t start a ROM session.
 
 ## Pick the repair that matches the damage
 
