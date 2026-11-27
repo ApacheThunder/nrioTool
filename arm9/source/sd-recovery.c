@@ -94,7 +94,7 @@ static bool save_backup_impl(const char *root, bool prepared, const struct nrio_
 {
     struct backup_info info = {
         .nand_id = initial->nand_id,
-        .pages = prepared ? nrio_recovery_backup_pages() : initial->workspace_bytes / (PAGE + SPARE),
+        .pages = prepared ? nrio_recovery_backup_pages() : nrio_recovery_pages_per_block(),
         .main_crc = UINT32_MAX,
         .spare_crc = UINT32_MAX,
     };
@@ -122,7 +122,8 @@ static bool save_backup_impl(const char *root, bool prepared, const struct nrio_
     }
     if (ok && !prepared && !records) {
         struct nrio_raw_info spare_info;
-        ok = select_view(NRIO_RAW_SPARE_READ, &spare_info) && spare_info.nand_id == initial->nand_id;
+        ok = select_view(NRIO_RAW_SPARE_READ, &spare_info) && spare_info.nand_id == initial->nand_id &&
+             nrio_recovery_pages_per_block() == info.pages;
         for (uint32_t i = 0; ok && i < info.pages * SPARE / SECTOR; ++i) {
             ok = nrio_recovery_read(i, 1, spare_data) &&
                  write_chunk(spare, spare_data, SECTOR, &info.spare_crc);
@@ -251,7 +252,7 @@ static enum backup_result load_backup_image(const char *root, int index, const s
     if (main_crc != info.main_crc) return BACKUP_MAIN_CRC;
     if (spare_crc != info.spare_crc) return BACKUP_SPARE_CRC;
     uint8_t current[2][SECTOR];
-    if (info.nand_id != live->nand_id || *bytes != live->workspace_bytes ||
+    if (info.nand_id != live->nand_id || info.pages != nrio_recovery_pages_per_block() ||
         !informative_anchors(info.anchors) || !read_anchors(current) ||
         memcmp(current, info.anchors, sizeof(current))) return BACKUP_CART_MISMATCH;
     return BACKUP_VALID;
@@ -526,7 +527,6 @@ static void check_cart(const char *root)
                 "CRCs pass. Cart anchors differ.", "Bad file size or read failed.",
                 "Main CRC mismatch.", "Spare CRC mismatch.", "Both CRCs mismatch.",
             };
-            info.workspace_bytes = nrio_recovery_pages_per_block() * (PAGE + SPARE);
             enum backup_result result = load_backup_image(root, index, &info, &length, anchors);
             consoleClear();
             printf("block0-%03d\n\n%s\n\nPress A to return.\n", index, summary[result]);
@@ -571,7 +571,7 @@ static bool capture_spare_comparison(const char *directory, struct nrio_rom_spar
     if (!file) return false;
     const bool ok = fread(header, 1, sizeof(header), file) == sizeof(header);
     if (fclose(file) || !ok) return false;
-    *comparison = nrio_compare_cart_spare(header, live);
+    *comparison = nrio_compare_cart_spare(header, live, early);
     return true;
 }
 
@@ -627,6 +627,8 @@ void nrioTool_export_recovery(const char *root)
                         comparison.matches, comparison.spare_erased ? "all FF" : "populated");
                 fprintf(log, "Consecutive repeats of the ROM record at 0x80-byte intervals: %u.\n",
                         comparison.following_repeats);
+                fprintf(log, "ROM 0xC00-0xFFF vs. main NAND 0x000-0x3FF: %u of 1024 bytes match.\n",
+                        comparison.main_matches);
             }
         }
         const bool ok = !ferror(log);

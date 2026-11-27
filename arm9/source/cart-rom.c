@@ -40,7 +40,8 @@ bool nrio_plan_cart_rom(const uint8_t header[512], struct nrio_cart_rom_plan *pl
 }
 
 struct nrio_rom_spare_compare nrio_compare_cart_spare(const uint8_t header[NRIO_ROM_HEADER_BYTES],
-                                 const uint8_t spare[NRIO_ROM_COMPARE_BYTES])
+                                 const uint8_t spare[NRIO_ROM_COMPARE_BYTES],
+                                 const uint8_t main_data[NRIO_ROM_MAIN_COMPARE_BYTES])
 {
     const uint8_t *first = header + 0x400;
     struct nrio_rom_spare_compare result = {.spare_erased = true};
@@ -50,6 +51,8 @@ struct nrio_rom_spare_compare nrio_compare_cart_spare(const uint8_t header[NRIO_
         result.spare_erased &= spare[i] == 0xff;
         uniform &= first[i] == first[0];
     }
+    for (unsigned i = 0; i < NRIO_ROM_MAIN_COMPARE_BYTES; ++i)
+        result.main_matches += header[0xc00 + i] == main_data[i];
     if (!uniform) {
         for (unsigned off = 0x480; off + NRIO_ROM_COMPARE_BYTES <= NRIO_ROM_HEADER_BYTES; off += 0x80) {
             if (memcmp(first, header + off, NRIO_ROM_COMPARE_BYTES)) break;

@@ -65,9 +65,11 @@ The dumper saves the plausible used size when
 present, or the capacity from the header otherwise.
 
 When the raw backup and live checks agree, the log compares the 64
-bytes at ROM offset `0x400` with spare page 0. It also reports adjacent
-copies of the ROM bytes on `0x80` boundaries. This checks the pattern
-Apache Thunder saw in an older Wi-Fi dump. A match does not make the
+bytes at ROM offset `0x400` with spare page 0. The log also compares ROM
+`0xC00–0xFFF` with raw main NAND `0x000–0x3FF`, and counts consecutive
+copies of the ROM record at `0x80`-byte intervals. Apache Thunder's
+DS Linker and both ExpressCard captures matched both windows exactly.
+These are comparisons, not a full logical-to-physical map. A match does not make the
 dump a safe source to program into NAND. The new ROM path still needs
 physical-cart testing.
 

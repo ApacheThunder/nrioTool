@@ -43,21 +43,23 @@ int main(int argc, char **argv)
     header[0x14] = 13;
     assert(!nrio_plan_cart_rom(header, &plan));
 
-    uint8_t spare[NRIO_ROM_COMPARE_BYTES];
+    uint8_t spare[NRIO_ROM_COMPARE_BYTES], main_data[NRIO_ROM_MAIN_COMPARE_BYTES] = {0};
     memset(spare, 0xff, sizeof(spare));
     memset(header + 0x400, 0xff, sizeof(spare));
     memset(header + 0x480, 0xff, sizeof(spare));
-    struct nrio_rom_spare_compare match = nrio_compare_cart_spare(header, spare);
+    struct nrio_rom_spare_compare match = nrio_compare_cart_spare(header, spare, main_data);
     assert(match.spare_erased && match.matches == 64 && !match.following_repeats);
+    assert(match.main_matches == 1024);
+    main_data[0x3ff] = 1;
     for (unsigned i = 0; i < sizeof(spare); ++i) spare[i] = (uint8_t)i;
     for (unsigned off = 0x400; off <= 0x580; off += 0x80)
         memcpy(header + off, spare, sizeof(spare));
     spare[12] ^= 1;
-    match = nrio_compare_cart_spare(header, spare);
+    match = nrio_compare_cart_spare(header, spare, main_data);
     assert(!match.spare_erased && match.matches == 63 && match.following_repeats == 3);
     header[0x500] ^= 1;
-    match = nrio_compare_cart_spare(header, spare);
-    assert(match.following_repeats == 1);
+    match = nrio_compare_cart_spare(header, spare, main_data);
+    assert(match.following_repeats == 1 && match.main_matches == 1023);
 
     /* Optional private raw block-0 captures use the DS header at offset 0x400. */
     for (int i = 1; i < argc; ++i) {
