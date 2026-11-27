@@ -938,10 +938,14 @@ static void RunUtilityMenu(const char *startupRecoveryRoot = nullptr) {
 			case MenuAction::CheckCart:
 				nrioTool_sd_recovery(5, startupRecoveryRoot ? startupRecoveryRoot : RecoveryStorageRoot());
 				break;
-            case MenuAction::ExportRecovery:
-                if (const char *root = recoveryOnly ? startupRecoveryRoot : RecoveryStorageRoot())
-                    nrioTool_export_recovery(root);
-                break;
+			case MenuAction::ExportRecovery:
+				if (const char *root = recoveryOnly ? startupRecoveryRoot : RecoveryStorageRoot()) {
+					LoadTopScreenUtilitySplash(true);
+					SelectBotConsole();
+					nrioTool_export_recovery(root);
+					LoadTopScreenUtilitySplash(WarningPosted || debugMode);
+				}
+				break;
             case MenuAction::CompareC1:
                 if (const char *root = recoveryOnly ? startupRecoveryRoot : RecoveryStorageRoot())
                     if (!nrioTool_c1_read_test(root)) ErrorState = true;
