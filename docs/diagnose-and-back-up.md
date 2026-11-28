@@ -159,11 +159,12 @@ This check does not enable legacy formatting or installation.
 ## Swap carts on DSi
 
 When nrioTool is running in DSi mode with access to the Slot-1 status
-register, it detects removal and insertion without rebooting. Swap carts
-while idle. The menus drop the old cart's state, and nrioTool probes the
-new one without remounting DSi SD. Reopen File Browser to mount the new
-cart. DS mode and launchers that lock the status register do not use
-automatic detection.
+register, it detects removal and insertion without rebooting. If the
+slot is empty at startup, insert a cart to continue automatically or
+press **B** to use the menus without one. Swap carts while idle. nrioTool
+clears the old cart's state and probes the new one without remounting DSi
+SD. Reopen File Browser to mount the new cart. DS mode and launchers that
+lock the status register do not use automatic detection.
 
 Removing a cart during a confirmation cancels the pending write. Never
 intentionally remove it while formatting or writing. If a write is

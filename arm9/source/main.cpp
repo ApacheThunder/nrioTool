@@ -631,6 +631,23 @@ static void RefreshSrlLayout() {
 	nrio_recovery_shutdown();
 }
 
+// Only startup waits here. Later ejections leave the menus available.
+static bool WaitForStartupCart() {
+	if (nrio_slot1_allowed()) return true;
+
+	consoleClear();
+	puts("No cart inserted.\n");
+	puts("Insert an N-Card in Slot-1.\n");
+	nrio_button_legend("B Continue without cart", nullptr);
+	for (;;) {
+		swiWaitForVBlank();
+		bool inserted;
+		if (nrio_slot1_take_change(&inserted) && inserted && nrio_slot1_allowed()) return true;
+		scanKeys();
+		if (keysDown() & KEY_B) return false;
+	}
+}
+
 static void ServiceSlot1Change() {
 	bool inserted;
 	if (!nrio_slot1_changed()) return;
@@ -1122,17 +1139,23 @@ int main(int argc, char **argv) {
 		fifoSendValue32(FIFO_USER_03, 1);
 		return 0;
 	}
-	
-	if (autoBootCart) {
-		printf("\n\n\n\n\n\n       Launching XuluMenu.\n          Please Wait...");
+
+	sysSetCardOwner(BUS_OWNER_ARM9);
+	if (!wasDSi) sysSetCartOwner(BUS_OWNER_ARM7);
+	if (wasDSi) MountFATDevices();
+
+	const bool startupCartReady = WaitForStartupCart();
+	consoleClear();
+	if (startupCartReady) {
+		if (autoBootCart) puts("\n\n\n\n\n       Launching XuluMenu.\n          Please Wait...");
+		else puts("\n\n\n\n\n Checking cart. Please Wait...");
 	} else {
-		printf("\n\n\n\n\n\n Checking cart. Please Wait...");
+		// Continuing without a cart never arms a later automatic boot.
+		autoBootCart = false;
 	}
 	
-	sysSetCardOwner(BUS_OWNER_ARM9);
-	if (!wasDSi)sysSetCartOwner(BUS_OWNER_ARM7);
 	if (recoveryOnly) {
-		if (wasDSi || GetSlot2Storage()) MountFATDevices();
+		if (!wasDSi && GetSlot2Storage()) MountFATDevices();
 		if (const char *root = RecoveryStorageRoot()) RunStorageRecoveryMenu(root);
 		else {
 			if (SCFGUnlocked && nrio_slot1_allowed()) enableSlot1();
@@ -1144,10 +1167,10 @@ int main(int argc, char **argv) {
 	// A Slot-1 DLDI probes the cart during mount. Reinitialize the bus
 	// after the reinsert prompt before letting that driver use it.
 	const bool mountAfterCardInit = !wasDSi && !GetSlot2Storage();
-	if (!mountAfterCardInit) MountFATDevices();
+	if (!wasDSi && !mountAfterCardInit) MountFATDevices();
 	toncset((void*)0x02000000, 0, 0x800);
-	const u32 cardStatus = CardInit();
-	if (cardStatus) {
+	const u32 cardStatus = startupCartReady ? CardInit() : 0;
+	if (cardStatus && nrio_slot1_allowed()) {
 		LoadTopScreen(true);
 		if (cardStatus == CARD_INIT_HEADER_CRC) {
 			const auto *header = reinterpret_cast<const sNDSHeaderExt *>(cartHeader);
@@ -1167,15 +1190,15 @@ int main(int argc, char **argv) {
 		fifoSendValue32(FIFO_USER_03, 1);
 		return 0;
 	}
-	RefreshSrlLayout();
-	if (!rawNandAvailable) {
+	if (startupCartReady) RefreshSrlLayout();
+	if (startupCartReady && nrio_slot1_allowed() && !rawNandAvailable) {
 		if (!WarningPosted) LoadTopScreen(true);
 		PrintToTop("Could not probe Slot-1 NAND.\n", -1, !WarningPosted);
 		WarningPosted = true;
 	}
 	if (rawNandAvailable && cardStatus)
 		PrintToTop("Raw NAND available.\n", -1, false);
-	if (autoBootCart && !cardStatus) { SetSCFG(); DoCartBoot(); }
+	if (autoBootCart && !cardStatus && nrio_slot1_allowed()) { SetSCFG(); DoCartBoot(); }
 	
 	if (wasDSi) { if(access("sd:/nrioFiles", F_OK) != 0)mkdir("sd:/nrioFiles", 0777); } else { if(access("fat:/nrioFiles", F_OK) != 0)mkdir("fat:/nrioFiles", 0777); }
 	
